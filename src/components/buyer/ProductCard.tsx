@@ -1,6 +1,8 @@
+'use client'
+
 import Link from 'next/link'
-import { formatPrice } from '@/lib/utils'
-import { ShoppingCart } from 'lucide-react'
+import Image from 'next/image'
+import { ShoppingBag } from 'lucide-react'
 
 interface ProductCardProps {
   product: {
@@ -13,25 +15,24 @@ interface ProductCardProps {
 }
 
 export function ProductCard({ product }: ProductCardProps) {
-  const primaryImg = product.product_images?.find((i) => i.is_primary)
-    || product.product_images?.[0]
+  const primaryImage = product.product_images?.find((img) => img.is_primary) || product.product_images?.[0]
 
   return (
     <Link
       href={`/products/${product.id}`}
-      className="group block overflow-hidden rounded-xl border bg-white shadow-sm transition-all hover:shadow-md"
+      className="group overflow-hidden rounded-xl border bg-white transition-all hover:shadow-lg hover:-translate-y-1"
     >
       {/* Image */}
       <div className="relative aspect-square overflow-hidden bg-gray-100">
-        {primaryImg ? (
+        {primaryImage ? (
           <img
-            src={primaryImg.url}
+            src={primaryImage.url}
             alt={product.name}
-            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-105"
+            className="h-full w-full object-cover transition-transform duration-300 group-hover:scale-110"
           />
         ) : (
           <div className="flex h-full w-full items-center justify-center">
-            <ShoppingCart className="h-8 w-8 text-gray-300" />
+            <ShoppingBag className="h-10 w-10 text-gray-300" />
           </div>
         )}
       </div>
@@ -39,11 +40,13 @@ export function ProductCard({ product }: ProductCardProps) {
       {/* Info */}
       <div className="p-3">
         {product.stores && (
-          <p className="mb-1 text-xs text-gray-500 truncate">{product.stores.name}</p>
+          <p className="mb-0.5 text-xs font-medium text-blue-600">{product.stores.name}</p>
         )}
-        <h3 className="text-sm font-medium leading-tight line-clamp-2">{product.name}</h3>
-        <p className="mt-1.5 text-sm font-bold" style={{ color: 'var(--color-tb-primary)' }}>
-          {formatPrice(product.price)}
+        <h3 className="text-sm font-medium text-gray-800 line-clamp-2 leading-tight group-hover:text-blue-700 transition-colors">
+          {product.name}
+        </h3>
+        <p className="mt-2 text-base font-bold" style={{ color: 'var(--color-tb-accent)' }}>
+          Rp {product.price.toLocaleString('id-ID')}
         </p>
       </div>
     </Link>

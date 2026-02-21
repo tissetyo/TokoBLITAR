@@ -54,16 +54,20 @@
 :root {
   --radius: 0.625rem;
 
-  /* TokoBLITAR Design Tokens */
-  --color-tb-primary: #1A1A2E;
-  --color-tb-accent: #E94560;
+  /* TokoBLITAR Design Tokens — Vibrant UMKM Palette */
+  --color-tb-primary: #2563EB;
+  /* Vibrant blue */
+  --color-tb-secondary: #7C3AED;
+  /* Rich purple */
+  --color-tb-accent: #F43F5E;
+  /* Coral rose */
   --color-tb-surface: #FFFFFF;
-  --color-tb-bg: #F6F6F6;
-  --color-tb-muted: #9E9E9E;
-  --color-tb-success: #2E7D32;
-  --color-tb-warning: #E65100;
-  --color-tb-error: #C62828;
-  --color-tb-border: #E0E0E0;
+  --color-tb-bg: #F8FAFC;
+  --color-tb-muted: #94A3B8;
+  --color-tb-success: #16A34A;
+  --color-tb-warning: #EA580C;
+  --color-tb-error: #DC2626;
+  --color-tb-border: #E2E8F0;
 
   --font-sans: 'Inter', sans-serif;
   --font-mono: 'JetBrains Mono', monospace;

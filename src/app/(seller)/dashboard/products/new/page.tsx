@@ -1,10 +1,14 @@
-export default function NewProductPage() {
-  return (
-    <div className="p-6">
-      <h1 className="text-3xl font-bold" style={{ color: 'var(--color-tb-primary)' }}>
-        NewProduct
-      </h1>
-      <p className="mt-2 text-sm text-gray-600">Halaman ini akan diimplementasi.</p>
-    </div>
-  )
+import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { ProductForm } from '@/components/seller/ProductForm'
+
+export default async function NewProductPage() {
+  const supabase = await createSupabaseServerClient()
+
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const { data: categories } = await (supabase as any)
+    .from('categories')
+    .select('id, name')
+    .order('name')
+
+  return <ProductForm categories={categories || []} />
 }

@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { useCartStore } from '@/store/cartStore'
 import { Button } from '@/components/ui/button'
@@ -9,9 +9,19 @@ import { Label } from '@/components/ui/label'
 import { Textarea } from '@/components/ui/textarea'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
 import { Separator } from '@/components/ui/separator'
+import { Skeleton } from '@/components/ui/skeleton'
 import { formatPrice } from '@/lib/utils'
 import { toast } from 'sonner'
-import { CreditCard, MapPin, Truck } from 'lucide-react'
+import { CreditCard, MapPin, Truck, Check } from 'lucide-react'
+
+interface ShippingRate {
+  courier_code: string
+  courier_name: string
+  courier_service_code: string
+  courier_service_name: string
+  duration: string
+  price: number
+}
 
 export default function CheckoutPage() {
   const router = useRouter()
@@ -19,6 +29,9 @@ export default function CheckoutPage() {
   const total = useCartStore((s) => s.total)
   const clearCart = useCartStore((s) => s.clear)
   const [loading, setLoading] = useState(false)
+  const [shippingRates, setShippingRates] = useState<ShippingRate[]>([])
+  const [loadingRates, setLoadingRates] = useState(false)
+  const [selectedShipping, setSelectedShipping] = useState<ShippingRate | null>(null)
   const [address, setAddress] = useState({
     name: '',
     phone: '',
@@ -33,9 +46,46 @@ export default function CheckoutPage() {
     return null
   }
 
+  // Calculate total weight
+  const totalWeight = 1000 // Default 1kg — in production, sum from product weights
+
+  async function fetchShippingRates() {
+    if (!address.postal_code || address.postal_code.length < 5) return
+
+    setLoadingRates(true)
+    setSelectedShipping(null)
+    try {
+      const params = new URLSearchParams({
+        destination_postal_code: address.postal_code,
+        weight: totalWeight.toString(),
+        value: total().toString(),
+      })
+      const res = await fetch(`/api/buyer/shipping?${params}`)
+      const data = await res.json()
+
+      if (res.ok && data.rates) {
+        setShippingRates(data.rates)
+      } else {
+        toast.error(data.error || 'Gagal mendapatkan ongkir')
+        setShippingRates([])
+      }
+    } catch {
+      toast.error('Gagal menghubungi layanan pengiriman')
+      setShippingRates([])
+    } finally {
+      setLoadingRates(false)
+    }
+  }
+
+  const grandTotal = total() + (selectedShipping?.price || 0)
+
   async function handleCheckout() {
     if (!address.name || !address.phone || !address.street) {
       toast.error('Lengkapi alamat pengiriman')
+      return
+    }
+    if (!selectedShipping) {
+      toast.error('Pilih metode pengiriman')
       return
     }
 
@@ -50,6 +100,11 @@ export default function CheckoutPage() {
             quantity: item.quantity,
           })),
           shipping_address: address,
+          shipping: {
+            courier: `${selectedShipping.courier_name} - ${selectedShipping.courier_service_name}`,
+            cost: selectedShipping.price,
+            duration: selectedShipping.duration,
+          },
         }),
       })
 
@@ -126,31 +181,76 @@ export default function CheckoutPage() {
                     <Input
                       value={address.postal_code}
                       onChange={(e) => setAddress({ ...address, postal_code: e.target.value })}
+                      onBlur={fetchShippingRates}
+                      placeholder="Contoh: 12345"
                     />
                   </div>
                 </div>
               </CardContent>
             </Card>
 
-            {/* Shipping */}
+            {/* Shipping — Biteship */}
             <Card>
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
-                  <Truck className="h-4 w-4" /> Pengiriman
+                  <Truck className="h-4 w-4" /> Pilih Pengiriman
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                <p className="text-sm text-gray-500">
-                  Ongkos kirim akan dihitung otomatis berdasarkan berat dan lokasi.
-                  Integrasi KirimAja segera hadir.
-                </p>
+                {!address.postal_code ? (
+                  <p className="text-sm text-gray-500">
+                    Masukkan kode pos tujuan untuk melihat pilihan kurir.
+                  </p>
+                ) : loadingRates ? (
+                  <div className="space-y-3">
+                    {Array.from({ length: 3 }).map((_, i) => (
+                      <Skeleton key={i} className="h-16 w-full rounded-lg" />
+                    ))}
+                  </div>
+                ) : shippingRates.length === 0 ? (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-gray-500">Belum ada tarif. Ketik kode pos lalu klik di luar field.</p>
+                    <Button variant="outline" size="sm" className="mt-2" onClick={fetchShippingRates}>
+                      Cek Ongkir
+                    </Button>
+                  </div>
+                ) : (
+                  <div className="space-y-2">
+                    {shippingRates.map((rate, i) => (
+                      <button
+                        key={`${rate.courier_code}-${rate.courier_service_code}-${i}`}
+                        type="button"
+                        onClick={() => setSelectedShipping(rate)}
+                        className={`flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors ${selectedShipping?.courier_service_code === rate.courier_service_code &&
+                            selectedShipping?.courier_code === rate.courier_code
+                            ? 'border-blue-500 bg-blue-50'
+                            : 'hover:bg-gray-50'
+                          }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          {selectedShipping?.courier_service_code === rate.courier_service_code &&
+                            selectedShipping?.courier_code === rate.courier_code && (
+                              <Check className="h-4 w-4 text-blue-600" />
+                            )}
+                          <div>
+                            <p className="text-sm font-medium">
+                              {rate.courier_name} — {rate.courier_service_name}
+                            </p>
+                            <p className="text-xs text-gray-500">{rate.duration}</p>
+                          </div>
+                        </div>
+                        <p className="text-sm font-bold">{formatPrice(rate.price)}</p>
+                      </button>
+                    ))}
+                  </div>
+                )}
               </CardContent>
             </Card>
           </div>
 
           {/* Order Summary */}
           <div>
-            <Card>
+            <Card className="sticky top-6">
               <CardHeader>
                 <CardTitle className="flex items-center gap-2 text-base">
                   <CreditCard className="h-4 w-4" /> Ringkasan Pesanan
@@ -170,15 +270,32 @@ export default function CheckoutPage() {
                   ))}
                 </div>
                 <Separator className="my-3" />
+                <div className="space-y-1 text-sm">
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Subtotal</span>
+                    <span>{formatPrice(total())}</span>
+                  </div>
+                  <div className="flex justify-between">
+                    <span className="text-gray-600">Ongkir</span>
+                    <span>
+                      {selectedShipping
+                        ? formatPrice(selectedShipping.price)
+                        : '—'}
+                    </span>
+                  </div>
+                </div>
+                <Separator className="my-3" />
                 <div className="flex justify-between font-bold">
                   <span>Total</span>
-                  <span style={{ color: 'var(--color-tb-primary)' }}>{formatPrice(total())}</span>
+                  <span style={{ color: 'var(--color-tb-primary)' }}>
+                    {formatPrice(grandTotal)}
+                  </span>
                 </div>
                 <Button
                   className="mt-4 w-full"
                   size="lg"
                   onClick={handleCheckout}
-                  disabled={loading}
+                  disabled={loading || !selectedShipping}
                 >
                   {loading ? 'Memproses...' : 'Bayar Sekarang'}
                 </Button>

@@ -18,6 +18,7 @@ import {
   SelectValue,
 } from '@/components/ui/select'
 import { ImageUpload } from '@/components/shared/ImageUpload'
+import { ProductAITools } from '@/components/seller/ProductAITools'
 import { toast } from 'sonner'
 import { ArrowLeft, Save, Plus, X } from 'lucide-react'
 
@@ -63,6 +64,8 @@ export function ProductForm({ initialData, categories = [] }: ProductFormProps) 
   })
 
   const watchStatus = watch('status')
+  const watchName = watch('name')
+  const watchDescription = watch('description')
 
   function addImage(url: string) {
     if (images.length >= 8) {
@@ -211,6 +214,20 @@ export function ProductForm({ initialData, categories = [] }: ProductFormProps) 
             </div>
           </CardContent>
         </Card>
+
+        {/* AI Tools */}
+        <ProductAITools
+          productName={watchName || ''}
+          productDescription={watchDescription || ''}
+          category={categories.find(c => c.id === watch('category_id'))?.name || ''}
+          onDescriptionGenerated={(desc) => setValue('description', desc)}
+          onImageGenerated={(url) => addImage(url)}
+          onCategorySelected={(catName) => {
+            const match = categories.find(c => c.name.toLowerCase().includes(catName.toLowerCase()))
+            if (match) setValue('category_id', match.id)
+            else toast.info(`Kategori "${catName}" tidak ditemukan di sistem`)
+          }}
+        />
 
         {/* Images */}
         {!isEdit && (

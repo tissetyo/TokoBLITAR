@@ -29,78 +29,65 @@ export async function POST(request: Request) {
     const client = new InferenceClient(hfToken)
 
     try {
-        if (action === 'remove_bg' || action === 'enhance') {
-            // Use the library — it auto-routes to the correct inference provider
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const result: any = await client.imageSegmentation({
-                model: 'briaai/RMBG-2.0',
-                inputs: imageBlob,
-                provider: 'hf-inference',
-            })
+        let model = ''
+        let prompt = ''
 
-            // Result can be Blob, ArrayBuffer, or array of segments
-            let outputBuffer: ArrayBuffer | null = null
-
-            if (result instanceof Blob) {
-                outputBuffer = await result.arrayBuffer()
-            } else if (result instanceof ArrayBuffer) {
-                outputBuffer = result
-            } else if (Array.isArray(result) && result.length > 0) {
-                const first = result[0]
-                if (first.mask instanceof Blob) {
-                    outputBuffer = await first.mask.arrayBuffer()
-                } else if (typeof first.mask === 'string') {
-                    // mask might be base64
-                    return NextResponse.json({ result: `data:image/png;base64,${first.mask}` })
-                }
-            }
-
-            if (outputBuffer) {
-                const resultBase64 = Buffer.from(outputBuffer).toString('base64')
-                return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
-            }
-
-            console.error('[enhance] Unexpected result type:', typeof result, JSON.stringify(result).slice(0, 200))
-            return NextResponse.json({ error: 'Format hasil tidak dikenali' }, { status: 500 })
+        if (action === 'remove_bg') {
+            model = 'FireRedTeam/FireRed-Image-Edit-1.0'
+            prompt = 'remove the background and replace with plain white background, keep the product intact'
+        } else if (action === 'enhance') {
+            model = 'prithivMLmods/Photo-Restore-i2i'
+            prompt = 'enhance this product photo, make it look professional with clean lighting, sharp details, vibrant colors, studio quality'
+        } else if (action === 'upscale') {
+            model = 'prithivMLmods/Qwen-Image-Edit-2511-Unblur-Upscale'
+            prompt = 'upscale and sharpen this image, remove blur, enhance details and clarity'
+        } else {
+            return NextResponse.json({ error: `Action "${action}" tidak dikenali` }, { status: 400 })
         }
 
-        if (action === 'upscale') {
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const result: any = await (client as any).imageToImage({
-                model: 'caidas/swin2SR-classical-sr-x2-64',
-                inputs: imageBlob,
-                provider: 'hf-inference',
-            })
+        console.log(`[enhance] Using model: ${model}`)
 
-            let outputBuffer: ArrayBuffer | null = null
-            if (result instanceof Blob) {
-                outputBuffer = await result.arrayBuffer()
-            } else if (result instanceof ArrayBuffer) {
-                outputBuffer = result
-            }
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const result: any = await client.imageToImage({
+            model,
+            inputs: imageBlob,
+            parameters: { prompt },
+            provider: 'hf-inference',
+        })
 
-            if (outputBuffer) {
-                const resultBase64 = Buffer.from(outputBuffer).toString('base64')
-                return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
-            }
+        // Result is typically a Blob
+        let outputBuffer: ArrayBuffer | null = null
 
-            return NextResponse.json({ error: 'Gagal upscale' }, { status: 500 })
+        if (result instanceof Blob) {
+            outputBuffer = await result.arrayBuffer()
+        } else if (result instanceof ArrayBuffer) {
+            outputBuffer = result
+        } else if (result && typeof result === 'object' && 'arrayBuffer' in result) {
+            outputBuffer = await result.arrayBuffer()
         }
 
-        return NextResponse.json({ error: `Action "${action}" tidak dikenali` }, { status: 400 })
+        if (outputBuffer && outputBuffer.byteLength > 100) {
+            const resultBase64 = Buffer.from(outputBuffer).toString('base64')
+            return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
+        }
+
+        console.error('[enhance] Empty or invalid result:', typeof result)
+        return NextResponse.json({ error: 'Hasil kosong dari AI. Coba lagi.' }, { status: 500 })
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[enhance] Error:', msg)
 
-        // Provide helpful error messages
         if (msg.includes('loading') || msg.includes('503')) {
-            return NextResponse.json({ error: 'Model AI sedang loading. Coba lagi dalam 30 detik.' }, { status: 503 })
+            return NextResponse.json({ error: 'Model AI sedang loading (~30 detik). Coba lagi.' }, { status: 503 })
         }
-        if (msg.includes('401') || msg.includes('403')) {
-            return NextResponse.json({ error: 'Token HuggingFace tidak valid atau tidak punya akses ke model ini.' }, { status: 403 })
+        if (msg.includes('401') || msg.includes('403') || msg.includes('Token')) {
+            return NextResponse.json({ error: 'Token HuggingFace tidak valid.' }, { status: 403 })
         }
-        if (msg.includes('rate') || msg.includes('429')) {
-            return NextResponse.json({ error: 'Rate limit tercapai. Coba lagi nanti.' }, { status: 429 })
+        if (msg.includes('pre-paid') || msg.includes('credits')) {
+            return NextResponse.json({ error: 'Model ini butuh credits berbayar. Coba action lain.' }, { status: 402 })
+        }
+        if (msg.includes('not been able to find')) {
+            return NextResponse.json({ error: 'Model tidak tersedia di free inference. Coba action lain.' }, { status: 404 })
         }
 
         return NextResponse.json({ error: `Gagal enhance: ${msg}` }, { status: 500 })

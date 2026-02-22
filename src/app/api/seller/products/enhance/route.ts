@@ -1,57 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-
-const HF_MODELS = {
-    remove_bg: 'briaai/RMBG-1.4',
-    upscale: 'caidas/swin2SR-classical-sr-x2-64',
-}
-
-async function callHF(model: string, imageBuffer: Buffer, token: string): Promise<ArrayBuffer> {
-    // Try new router URL first, then fallback to old API
-    const urls = [
-        `https://router.huggingface.co/hf-inference/models/${model}`,
-        `https://api-inference.huggingface.co/models/${model}`,
-    ]
-
-    let lastError = ''
-    for (const url of urls) {
-        console.log(`[enhance] Trying: ${url}`)
-        const res = await fetch(url, {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${token}`,
-                'Content-Type': 'application/octet-stream',
-                'x-wait-for-model': 'true',
-            },
-            body: new Uint8Array(imageBuffer),
-        })
-
-        if (res.ok) {
-            const contentType = res.headers.get('content-type') || ''
-            if (contentType.includes('image') || contentType.includes('octet')) {
-                return res.arrayBuffer()
-            }
-            // If not image, might be JSON error
-            const text = await res.text()
-            console.error(`[enhance] Got non-image response:`, text.slice(0, 200))
-            lastError = text.slice(0, 200)
-            continue
-        }
-
-        const errText = await res.text().catch(() => '')
-        console.error(`[enhance] ${url} failed:`, res.status, errText.slice(0, 200))
-        lastError = `${res.status}: ${errText.slice(0, 200)}`
-
-        // 410 Gone = endpoint deprecated, try next URL
-        if (res.status === 410) continue
-        // 503 = model loading
-        if (res.status === 503) {
-            throw new Error('Model AI sedang loading. Coba lagi dalam 30 detik.')
-        }
-    }
-
-    throw new Error(`Semua endpoint gagal. ${lastError}`)
-}
+import { InferenceClient } from '@huggingface/inference'
 
 export async function POST(request: Request) {
     const supabase = await createSupabaseServerClient()
@@ -74,25 +23,84 @@ export async function POST(request: Request) {
     }
 
     const imageBuffer = Buffer.from(image_base64, 'base64')
+    const imageBlob = new Blob([imageBuffer], { type: 'image/jpeg' })
     console.log(`[enhance] action=${action}, size=${(imageBuffer.length / 1024).toFixed(0)}KB`)
+
+    const client = new InferenceClient(hfToken)
 
     try {
         if (action === 'remove_bg' || action === 'enhance') {
-            const resultBuffer = await callHF(HF_MODELS.remove_bg, imageBuffer, hfToken)
-            const resultBase64 = Buffer.from(resultBuffer).toString('base64')
-            return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
+            // Use the library — it auto-routes to the correct inference provider
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const result: any = await client.imageSegmentation({
+                model: 'briaai/RMBG-2.0',
+                inputs: imageBlob,
+            })
+
+            // Result can be Blob, ArrayBuffer, or array of segments
+            let outputBuffer: ArrayBuffer | null = null
+
+            if (result instanceof Blob) {
+                outputBuffer = await result.arrayBuffer()
+            } else if (result instanceof ArrayBuffer) {
+                outputBuffer = result
+            } else if (Array.isArray(result) && result.length > 0) {
+                const first = result[0]
+                if (first.mask instanceof Blob) {
+                    outputBuffer = await first.mask.arrayBuffer()
+                } else if (typeof first.mask === 'string') {
+                    // mask might be base64
+                    return NextResponse.json({ result: `data:image/png;base64,${first.mask}` })
+                }
+            }
+
+            if (outputBuffer) {
+                const resultBase64 = Buffer.from(outputBuffer).toString('base64')
+                return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
+            }
+
+            console.error('[enhance] Unexpected result type:', typeof result, JSON.stringify(result).slice(0, 200))
+            return NextResponse.json({ error: 'Format hasil tidak dikenali' }, { status: 500 })
         }
 
         if (action === 'upscale') {
-            const resultBuffer = await callHF(HF_MODELS.upscale, imageBuffer, hfToken)
-            const resultBase64 = Buffer.from(resultBuffer).toString('base64')
-            return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const result: any = await (client as any).imageToImage({
+                model: 'caidas/swin2SR-classical-sr-x2-64',
+                inputs: imageBlob,
+            })
+
+            let outputBuffer: ArrayBuffer | null = null
+            if (result instanceof Blob) {
+                outputBuffer = await result.arrayBuffer()
+            } else if (result instanceof ArrayBuffer) {
+                outputBuffer = result
+            }
+
+            if (outputBuffer) {
+                const resultBase64 = Buffer.from(outputBuffer).toString('base64')
+                return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
+            }
+
+            return NextResponse.json({ error: 'Gagal upscale' }, { status: 500 })
         }
 
         return NextResponse.json({ error: `Action "${action}" tidak dikenali` }, { status: 400 })
     } catch (err) {
-        const msg = err instanceof Error ? err.message : 'Unknown error'
+        const msg = err instanceof Error ? err.message : String(err)
         console.error('[enhance] Error:', msg)
-        return NextResponse.json({ error: msg }, { status: 500 })
+
+        // Provide helpful error messages
+        if (msg.includes('loading') || msg.includes('503')) {
+            return NextResponse.json({ error: 'Model AI sedang loading. Coba lagi dalam 30 detik.' }, { status: 503 })
+        }
+        if (msg.includes('401') || msg.includes('403')) {
+            return NextResponse.json({ error: 'Token HuggingFace tidak valid atau tidak punya akses ke model ini.' }, { status: 403 })
+        }
+        if (msg.includes('rate') || msg.includes('429')) {
+            return NextResponse.json({ error: 'Rate limit tercapai. Coba lagi nanti.' }, { status: 429 })
+        }
+
+        return NextResponse.json({ error: `Gagal enhance: ${msg}` }, { status: 500 })
     }
 }

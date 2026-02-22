@@ -35,6 +35,7 @@ export async function POST(request: Request) {
             const result: any = await client.imageSegmentation({
                 model: 'briaai/RMBG-2.0',
                 inputs: imageBlob,
+                provider: 'hf-inference',
             })
 
             // Result can be Blob, ArrayBuffer, or array of segments
@@ -68,6 +69,7 @@ export async function POST(request: Request) {
             const result: any = await (client as any).imageToImage({
                 model: 'caidas/swin2SR-classical-sr-x2-64',
                 inputs: imageBlob,
+                provider: 'hf-inference',
             })
 
             let outputBuffer: ArrayBuffer | null = null

@@ -25,24 +25,8 @@ const TOOLS = [
                 price: { type: Type.NUMBER, description: 'Harga dalam Rupiah' },
                 stock: { type: Type.NUMBER, description: 'Jumlah stok' },
                 description: { type: Type.STRING, description: 'Deskripsi produk' },
-                status: { type: Type.STRING, description: 'Status: active atau draft' },
             },
             required: ['name', 'price'],
-        },
-    },
-    {
-        name: 'update_product',
-        description: 'Update data produk yang sudah ada',
-        parameters: {
-            type: Type.OBJECT,
-            properties: {
-                product_id: { type: Type.STRING, description: 'ID produk' },
-                name: { type: Type.STRING, description: 'Nama baru' },
-                price: { type: Type.NUMBER, description: 'Harga baru' },
-                stock: { type: Type.NUMBER, description: 'Stok baru' },
-                status: { type: Type.STRING, description: 'Status: active, draft, atau archived' },
-            },
-            required: ['product_id'],
         },
     },
     {
@@ -51,7 +35,6 @@ const TOOLS = [
         parameters: {
             type: Type.OBJECT,
             properties: {
-                status: { type: Type.STRING, description: 'Filter status: active, draft, atau archived' },
                 limit: { type: Type.NUMBER, description: 'Jumlah produk (default 10)' },
             },
         },
@@ -64,8 +47,6 @@ const TOOLS = [
             properties: {
                 code: { type: Type.STRING, description: 'Kode promo (uppercase)' },
                 discount_percent: { type: Type.NUMBER, description: 'Persen diskon (1-100)' },
-                min_order: { type: Type.NUMBER, description: 'Minimum order dalam Rupiah' },
-                valid_until: { type: Type.STRING, description: 'Tanggal expired (YYYY-MM-DD)' },
             },
             required: ['code', 'discount_percent'],
         },
@@ -104,7 +85,7 @@ async function executeTool(toolName: string, toolInput: Record<string, unknown>,
                     price: toolInput.price,
                     stock: toolInput.stock || 0,
                     description: toolInput.description || '',
-                    status: toolInput.status || 'active',
+                    status: 'active',
                 })
                 .select('id, name, price, stock, status')
                 .single()
@@ -113,32 +94,14 @@ async function executeTool(toolName: string, toolInput: Record<string, unknown>,
             return `Produk "${data.name}" berhasil dibuat! Harga: Rp ${data.price?.toLocaleString('id-ID')}, Stok: ${data.stock}`
         }
 
-        case 'update_product': {
-            const { product_id, ...updates } = toolInput
-            // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const { data, error } = await (supabase as any)
-                .from('products')
-                .update(updates)
-                .eq('id', product_id)
-                .eq('store_id', store.id)
-                .select('name, price, stock, status')
-                .single()
-
-            if (error) return `Gagal: ${error.message}`
-            return `Produk "${data.name}" berhasil diupdate!`
-        }
-
         case 'list_products': {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            let query = (supabase as any)
+            const { data, error } = await (supabase as any)
                 .from('products')
                 .select('id, name, price, stock, status')
                 .eq('store_id', store.id)
                 .is('deleted_at', null)
                 .limit(toolInput.limit || 10)
-
-            if (toolInput.status) query = query.eq('status', toolInput.status)
-            const { data, error } = await query
 
             if (error) return `Gagal: ${error.message}`
             if (!data?.length) return 'Belum ada produk di toko Anda.'
@@ -156,8 +119,8 @@ async function executeTool(toolName: string, toolInput: Record<string, unknown>,
                     store_id: store.id,
                     code: (toolInput.code as string).toUpperCase(),
                     discount_percent: toolInput.discount_percent,
-                    min_order_amount: toolInput.min_order || 0,
-                    valid_until: toolInput.valid_until || new Date(Date.now() + 30 * 86400000).toISOString(),
+                    min_order_amount: 0,
+                    valid_until: new Date(Date.now() + 30 * 86400000).toISOString(),
                     is_active: true,
                 })
                 .select('code, discount_percent')
@@ -190,32 +153,50 @@ async function executeTool(toolName: string, toolInput: Record<string, unknown>,
 export async function POST(request: Request) {
     const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) {
-        return NextResponse.json({ error: 'AI service not configured. Set GEMINI_API_KEY.' }, { status: 503 })
+        return NextResponse.json({ error: 'GEMINI_API_KEY belum di-set' }, { status: 503 })
     }
 
     const supabase = await createSupabaseServerClient()
     const { data: { user } } = await supabase.auth.getUser()
-    if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    if (!user) return NextResponse.json({ error: 'Silakan login terlebih dahulu' }, { status: 401 })
 
-    const { messages } = await request.json()
+    let body
+    try {
+        body = await request.json()
+    } catch {
+        return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+    }
 
-    const ai = new GoogleGenAI({ apiKey })
-
-    // Convert messages to Gemini format
-    const geminiHistory = (messages || []).slice(0, -1).map((m: { role: string; content: string }) => ({
-        role: m.role === 'assistant' ? 'model' : 'user',
-        parts: [{ text: m.content }],
-    }))
-
-    const lastMessage = messages?.[messages.length - 1]?.content || ''
+    const { messages } = body
+    if (!messages || !Array.isArray(messages) || messages.length === 0) {
+        return NextResponse.json({ error: 'Messages is required' }, { status: 400 })
+    }
 
     try {
-        // Call Gemini with function calling
+        const ai = new GoogleGenAI({ apiKey })
+
+        // Get the latest user message
+        const lastMsg = messages[messages.length - 1]
+        const userPrompt = lastMsg?.content || 'Halo'
+
+        // Build Gemini history — ensure alternating user/model pattern
+        // Gemini requires strict alternating roles
+        const history: { role: string; parts: { text: string }[] }[] = []
+        for (let i = 0; i < messages.length - 1; i++) {
+            const m = messages[i]
+            if (!m.content || m.content.trim() === '') continue
+            const role = m.role === 'assistant' ? 'model' : 'user'
+            // Skip if same role as previous (Gemini requires alternating)
+            if (history.length > 0 && history[history.length - 1].role === role) continue
+            history.push({ role, parts: [{ text: m.content }] })
+        }
+
+        // Simple non-tool request first for reliability
         const response = await ai.models.generateContent({
             model: 'gemini-2.0-flash',
             contents: [
-                ...geminiHistory,
-                { role: 'user', parts: [{ text: lastMessage }] },
+                ...history,
+                { role: 'user', parts: [{ text: userPrompt }] },
             ],
             config: {
                 systemInstruction: SYSTEM_PROMPT,
@@ -223,7 +204,7 @@ export async function POST(request: Request) {
             },
         })
 
-        // Check if there are function calls
+        // Process response parts
         const candidate = response.candidates?.[0]
         const parts = candidate?.content?.parts || []
 
@@ -242,32 +223,42 @@ export async function POST(request: Request) {
             }
         }
 
-        // If there were tool calls, make a follow-up request with results
+        // If there were tool calls, follow up with results
         if (toolResults.length > 0) {
-            const toolResultParts = toolResults.map(tr => ({
-                functionResponse: {
-                    name: tr.tool,
-                    response: { result: tr.result },
-                },
-            }))
+            try {
+                const toolResultParts = toolResults.map(tr => ({
+                    functionResponse: {
+                        name: tr.tool,
+                        response: { result: tr.result },
+                    },
+                }))
 
-            const followUp = await ai.models.generateContent({
-                model: 'gemini-2.0-flash',
-                contents: [
-                    ...geminiHistory,
-                    { role: 'user', parts: [{ text: lastMessage }] },
-                    { role: 'model', parts: parts },
-                    { role: 'user', parts: toolResultParts },
-                ],
-                config: {
-                    systemInstruction: SYSTEM_PROMPT,
-                },
-            })
+                const followUp = await ai.models.generateContent({
+                    model: 'gemini-2.0-flash',
+                    contents: [
+                        ...history,
+                        { role: 'user', parts: [{ text: userPrompt }] },
+                        { role: 'model', parts: parts },
+                        { role: 'user', parts: toolResultParts },
+                    ],
+                    config: {
+                        systemInstruction: SYSTEM_PROMPT,
+                    },
+                })
 
-            textContent = followUp.text || textContent
+                textContent = followUp.text || textContent
+            } catch {
+                // If follow-up fails, just use tool results
+                textContent = toolResults.map(tr => `✅ ${tr.tool}: ${tr.result}`).join('\n\n')
+            }
         }
 
-        // Stream response as SSE (simulate streaming for consistent client API)
+        // Fallback if no text
+        if (!textContent && toolResults.length === 0) {
+            textContent = 'Maaf, saya tidak bisa memproses permintaan kamu saat ini. Coba lagi ya!'
+        }
+
+        // Stream response as SSE
         const encoder = new TextEncoder()
         const stream = new ReadableStream({
             start(controller) {
@@ -278,16 +269,16 @@ export async function POST(request: Request) {
                     ))
                 }
 
-                // Send text in chunks to simulate streaming
-                const words = textContent.split(' ')
-                let chunk = ''
-                for (let i = 0; i < words.length; i++) {
-                    chunk += (i > 0 ? ' ' : '') + words[i]
-                    if (chunk.length > 20 || i === words.length - 1) {
+                // Send text content
+                if (textContent) {
+                    const chunks: string[] = []
+                    for (let i = 0; i < textContent.length; i += 50) {
+                        chunks.push(textContent.slice(i, i + 50))
+                    }
+                    for (const chunk of chunks) {
                         controller.enqueue(encoder.encode(
                             `data: ${JSON.stringify({ type: 'text', content: chunk })}\n\n`
                         ))
-                        chunk = ''
                     }
                 }
 
@@ -304,7 +295,11 @@ export async function POST(request: Request) {
             },
         })
     } catch (err) {
-        console.error('Gemini API error:', err)
-        return NextResponse.json({ error: 'AI service error' }, { status: 500 })
+        const errorMessage = err instanceof Error ? err.message : 'Unknown error'
+        console.error('Gemini API error:', errorMessage)
+        return NextResponse.json(
+            { error: `AI error: ${errorMessage}` },
+            { status: 500 }
+        )
     }
 }

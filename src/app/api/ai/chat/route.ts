@@ -167,7 +167,15 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
-    const { messages } = body
+    const { messages, model: requestModel } = body
+    const ALLOWED_MODELS = [
+        'gemini-2.0-flash-lite',
+        'gemini-2.0-flash',
+        'gemini-2.5-flash-preview-05-20',
+        'gemini-2.5-pro-preview-05-06',
+    ]
+    const model = ALLOWED_MODELS.includes(requestModel) ? requestModel : 'gemini-2.0-flash-lite'
+
     if (!messages || !Array.isArray(messages) || messages.length === 0) {
         return NextResponse.json({ error: 'Messages is required' }, { status: 400 })
     }
@@ -193,7 +201,7 @@ export async function POST(request: Request) {
 
         // Simple non-tool request first for reliability
         const response = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
+            model,
             contents: [
                 ...history,
                 { role: 'user', parts: [{ text: userPrompt }] },
@@ -234,7 +242,7 @@ export async function POST(request: Request) {
                 }))
 
                 const followUp = await ai.models.generateContent({
-                    model: 'gemini-2.0-flash',
+                    model,
                     contents: [
                         ...history,
                         { role: 'user', parts: [{ text: userPrompt }] },

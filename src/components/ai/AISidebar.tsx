@@ -22,11 +22,18 @@ const QUICK_ACTIONS = [
 ]
 
 export function AISidebar() {
-    const { messages, isStreaming, isOpen, toggleSidebar, clear } = useAIStore()
+    const { messages, isStreaming, isOpen, toggleSidebar, clear, model, setModel } = useAIStore()
     const { send, stop } = useAI()
     const [input, setInput] = useState('')
     const messagesEndRef = useRef<HTMLDivElement>(null)
     const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+    const MODELS = [
+        { id: 'gemini-2.0-flash-lite', label: 'Flash Lite', desc: 'Tercepat & gratis' },
+        { id: 'gemini-2.0-flash', label: 'Flash', desc: 'Cepat & akurat' },
+        { id: 'gemini-2.5-flash-preview-05-20', label: '2.5 Flash', desc: 'Terbaru' },
+        { id: 'gemini-2.5-pro-preview-05-06', label: '2.5 Pro', desc: 'Terpintar' },
+    ]
 
     // Auto-scroll to bottom
     useEffect(() => {
@@ -52,18 +59,35 @@ export function AISidebar() {
     return (
         <div className="flex h-full w-full flex-col border-l bg-white">
             {/* Header */}
-            <div className="flex items-center justify-between border-b px-4 py-3">
-                <div className="flex items-center gap-2">
-                    <Sparkles className="h-5 w-5" style={{ color: 'var(--color-tb-primary)' }} />
-                    <h2 className="text-sm font-semibold">Asisten AI</h2>
+            <div className="border-b px-4 py-3">
+                <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-2">
+                        <Sparkles className="h-5 w-5" style={{ color: 'var(--color-tb-primary)' }} />
+                        <h2 className="text-sm font-semibold">Asisten AI</h2>
+                    </div>
+                    <div className="flex items-center gap-1">
+                        <Button variant="ghost" size="icon" onClick={clear} title="Hapus percakapan">
+                            <Trash2 className="h-4 w-4" />
+                        </Button>
+                        <Button variant="ghost" size="icon" onClick={toggleSidebar}>
+                            <X className="h-4 w-4" />
+                        </Button>
+                    </div>
                 </div>
-                <div className="flex items-center gap-1">
-                    <Button variant="ghost" size="icon" onClick={clear} title="Hapus percakapan">
-                        <Trash2 className="h-4 w-4" />
-                    </Button>
-                    <Button variant="ghost" size="icon" onClick={toggleSidebar}>
-                        <X className="h-4 w-4" />
-                    </Button>
+                {/* Model selector */}
+                <div className="mt-2 flex items-center gap-1.5">
+                    <span className="text-[10px] text-gray-400 shrink-0">Model:</span>
+                    <select
+                        value={model}
+                        onChange={(e) => setModel(e.target.value)}
+                        className="flex-1 rounded-md border border-gray-200 bg-gray-50 px-2 py-1 text-[11px] text-gray-600 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-100"
+                    >
+                        {MODELS.map((m) => (
+                            <option key={m.id} value={m.id}>
+                                {m.label} — {m.desc}
+                            </option>
+                        ))}
+                    </select>
                 </div>
             </div>
 
@@ -100,8 +124,8 @@ export function AISidebar() {
                             >
                                 <div
                                     className={`max-w-[85%] rounded-xl px-3 py-2 text-sm leading-relaxed ${msg.role === 'user'
-                                            ? 'bg-blue-600 text-white'
-                                            : 'bg-gray-100 text-gray-800'
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-gray-100 text-gray-800'
                                         }`}
                                 >
                                     <p className="whitespace-pre-wrap">{msg.content || '...'}</p>

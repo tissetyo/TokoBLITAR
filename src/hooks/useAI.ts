@@ -24,6 +24,7 @@ export function useAI() {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
                     body: JSON.stringify({
+                        model: useAIStore.getState().model,
                         messages: useAIStore.getState().messages
                             .filter((m) => !m.isStreaming)
                             .map((m) => ({ role: m.role, content: m.content })),

@@ -14,10 +14,12 @@ interface AIStore {
     messages: Message[]
     isOpen: boolean
     isStreaming: boolean
+    model: string
     addMessage: (msg: Omit<Message, 'id'>) => string
     updateMessage: (id: string, content: string) => void
     toggleSidebar: () => void
     setStreaming: (v: boolean) => void
+    setModel: (model: string) => void
     clear: () => void
 }
 
@@ -27,6 +29,7 @@ export const useAIStore = create<AIStore>()(
             messages: [],
             isOpen: true,
             isStreaming: false,
+            model: 'gemini-2.0-flash-lite',
             addMessage: (msg) => {
                 const id = crypto.randomUUID()
                 set((s) => ({ messages: [...s.messages, { ...msg, id }] }))
@@ -38,6 +41,7 @@ export const useAIStore = create<AIStore>()(
                 })),
             toggleSidebar: () => set((s) => ({ isOpen: !s.isOpen })),
             setStreaming: (v) => set({ isStreaming: v }),
+            setModel: (model) => set({ model }),
             clear: () => set({ messages: [] }),
         }),
         {
@@ -45,6 +49,7 @@ export const useAIStore = create<AIStore>()(
             partialize: (state) => ({
                 messages: state.messages.filter((m) => !m.isStreaming),
                 isOpen: state.isOpen,
+                model: state.model,
             }),
         },
     ),

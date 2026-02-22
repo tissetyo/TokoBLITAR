@@ -32,7 +32,7 @@ export async function POST(request: Request) {
         // --- STEP 1: Use Gemini Vision to describe the product ---
         console.log(`[enhance] Step 1: Requesting Gemini Vision analysis...`)
         const genAI = new GoogleGenerativeAI(geminiKey)
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' })
 
         // Extract raw base64 data (remove data:image/png;base64, prefix if present)
         const base64Data = image_base64.includes(',') ? image_base64.split(',')[1] : image_base64

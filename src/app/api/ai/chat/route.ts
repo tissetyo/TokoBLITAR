@@ -132,7 +132,8 @@ const GROQ_TOOLS = [
 ]
 
 // Execute tools against the database
-async function executeTool(toolName: string, toolInput: Record<string, unknown>, userId: string): Promise<string> {
+async function executeTool(toolName: string, toolInput: Record<string, unknown> | null, userId: string): Promise<string> {
+    const input = toolInput || {}
     const supabase = await createSupabaseServerClient()
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: store } = await (supabase as any).from('stores').select('id').eq('user_id', userId).single()
@@ -143,7 +144,7 @@ async function executeTool(toolName: string, toolInput: Record<string, unknown>,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const { data, error } = await (supabase as any)
                 .from('products')
-                .insert({ store_id: store.id, name: toolInput.name, price: toolInput.price, stock: toolInput.stock || 0, description: toolInput.description || '', status: 'active' })
+                .insert({ store_id: store.id, name: input.name, price: input.price, stock: input.stock || 0, description: input.description || '', status: 'active' })
                 .select('id, name, price, stock').single()
             if (error) return `Gagal: ${error.message}`
             return `Produk "${data.name}" berhasil dibuat! Harga: Rp ${data.price?.toLocaleString('id-ID')}, Stok: ${data.stock}`
@@ -151,7 +152,7 @@ async function executeTool(toolName: string, toolInput: Record<string, unknown>,
         case 'list_products': {
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const { data, error } = await (supabase as any)
-                .from('products').select('id, name, price, stock, status').eq('store_id', store.id).is('deleted_at', null).limit(toolInput.limit || 10)
+                .from('products').select('id, name, price, stock, status').eq('store_id', store.id).is('deleted_at', null).limit(input.limit || 10)
             if (error) return `Gagal: ${error.message}`
             if (!data?.length) return 'Belum ada produk di toko Anda.'
             return data.map((p: { name: string; price: number; stock: number; status: string }) =>
@@ -162,7 +163,7 @@ async function executeTool(toolName: string, toolInput: Record<string, unknown>,
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
             const { data, error } = await (supabase as any)
                 .from('promo_codes')
-                .insert({ store_id: store.id, code: (toolInput.code as string).toUpperCase(), discount_percent: toolInput.discount_percent, min_order_amount: 0, valid_until: new Date(Date.now() + 30 * 86400000).toISOString(), is_active: true })
+                .insert({ store_id: store.id, code: (input.code as string || 'PROMO').toUpperCase(), discount_percent: input.discount_percent || 10, min_order_amount: 0, valid_until: new Date(Date.now() + 30 * 86400000).toISOString(), is_active: true })
                 .select('code, discount_percent').single()
             if (error) return `Gagal: ${error.message}`
             return `Promo "${data.code}" berhasil dibuat! Diskon ${data.discount_percent}%`
@@ -246,7 +247,7 @@ async function handleGroq(apiKey: string, modelId: string, messages: { role: str
         for (const tc of message.tool_calls) {
             const toolName = tc.function.name
             let toolArgs: Record<string, unknown> = {}
-            try { toolArgs = JSON.parse(tc.function.arguments || '{}') } catch { /* empty */ }
+            try { toolArgs = JSON.parse(tc.function.arguments || '{}') || {} } catch { /* empty */ }
             const result = await executeTool(toolName, toolArgs, userId)
             toolResults.push({ tool: toolName, result })
         }

@@ -130,6 +130,38 @@ export function AISidebar() {
                                         }`}
                                 >
                                     <p className="whitespace-pre-wrap">{msg.content || '...'}</p>
+                                    {msg.role === 'assistant' && msg.content && (() => {
+                                        const linkMap: Record<string, string> = {
+                                            '/dashboard/marketplace/google-maps': '🗺️ Panduan Google Maps',
+                                            '/dashboard/marketplace/tokopedia': '🟢 Panduan Tokopedia',
+                                            '/dashboard/marketplace/shopee': '🟠 Panduan Shopee',
+                                            '/dashboard/marketplace/lazada': '🔵 Panduan Lazada',
+                                            '/dashboard/marketplace/instagram': '📸 Panduan Instagram',
+                                            '/dashboard/marketplace': '🏪 Marketplace Hub',
+                                            '/dashboard/products': '📦 Kelola Produk',
+                                            '/dashboard/orders': '📋 Pesanan',
+                                            '/dashboard/promo': '🏷️ Promo',
+                                            '/dashboard/store': '🏠 Profil Toko',
+                                            '/dashboard/shipping': '🚚 Pengiriman',
+                                            '/dashboard/instagram': '📷 Instagram',
+                                            '/dashboard': '📊 Dashboard',
+                                        }
+                                        const found = Object.entries(linkMap).filter(([path]) => msg.content.includes(path))
+                                        if (found.length === 0) return null
+                                        return (
+                                            <div className="mt-2 flex flex-wrap gap-1.5">
+                                                {found.map(([path, label]) => (
+                                                    <a
+                                                        key={path}
+                                                        href={path}
+                                                        className="inline-flex items-center gap-1 rounded-lg bg-blue-50 px-2.5 py-1.5 text-xs font-medium text-blue-700 transition-colors hover:bg-blue-100"
+                                                    >
+                                                        {label} →
+                                                    </a>
+                                                ))}
+                                            </div>
+                                        )
+                                    })()}
                                 </div>
                             </div>
                         ))}

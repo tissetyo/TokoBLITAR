@@ -1,6 +1,45 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
+// Helper: call HuggingFace with retry on 503 (model loading)
+async function callHuggingFace(model: string, imageBuffer: Buffer, token: string, retries = 2): Promise<ArrayBuffer> {
+    for (let i = 0; i <= retries; i++) {
+        const res = await fetch(
+            `https://api-inference.huggingface.co/models/${model}`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${token}`,
+                    'Content-Type': 'application/octet-stream',
+                    'x-wait-for-model': 'true',
+                },
+                body: new Uint8Array(imageBuffer),
+            },
+        )
+
+        if (res.ok) {
+            return res.arrayBuffer()
+        }
+
+        const errText = await res.text()
+        console.error(`HF ${model} attempt ${i + 1}:`, res.status, errText)
+
+        // If model is loading, wait and retry
+        if (res.status === 503 && i < retries) {
+            await new Promise(r => setTimeout(r, 5000))
+            continue
+        }
+
+        if (res.status === 503) {
+            throw new Error('MODEL_LOADING')
+        }
+
+        throw new Error(`HuggingFace error ${res.status}: ${errText.slice(0, 200)}`)
+    }
+
+    throw new Error('Max retries exceeded')
+}
+
 // POST: Enhance product photo using Hugging Face
 export async function POST(request: Request) {
     const supabase = await createSupabaseServerClient()
@@ -20,124 +59,43 @@ export async function POST(request: Request) {
     }
 
     const { image_base64, action } = body
-    // image_base64 should be the raw base64 string (without data:image prefix)
 
     if (!image_base64) {
         return NextResponse.json({ error: 'image_base64 is required' }, { status: 400 })
     }
 
     const imageBuffer = Buffer.from(image_base64, 'base64')
+    console.log(`[enhance] action=${action}, imageSize=${imageBuffer.length} bytes`)
 
     try {
         if (action === 'remove_bg') {
-            // --- BACKGROUND REMOVAL using RMBG-2.0 ---
-            const hfRes = await fetch(
-                'https://api-inference.huggingface.co/models/briaai/RMBG-2.0',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${hfToken}`,
-                        'Content-Type': 'application/octet-stream',
-                    },
-                    body: imageBuffer,
-                },
-            )
-
-            if (!hfRes.ok) {
-                const errText = await hfRes.text()
-                console.error('HF remove_bg error:', hfRes.status, errText)
-                if (hfRes.status === 503) {
-                    return NextResponse.json({ error: 'Model sedang loading (~20 detik). Coba lagi.' }, { status: 503 })
-                }
-                return NextResponse.json({ error: 'Gagal hapus background' }, { status: 500 })
-            }
-
-            const resultBuffer = await hfRes.arrayBuffer()
+            const resultBuffer = await callHuggingFace('briaai/RMBG-1.4', imageBuffer, hfToken)
             const resultBase64 = Buffer.from(resultBuffer).toString('base64')
             return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
         }
 
         if (action === 'upscale') {
-            // --- UPSCALE using Real-ESRGAN ---
-            const hfRes = await fetch(
-                'https://api-inference.huggingface.co/models/caidas/swin2SR-lightweight-x2-64',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${hfToken}`,
-                        'Content-Type': 'application/octet-stream',
-                    },
-                    body: imageBuffer,
-                },
-            )
-
-            if (!hfRes.ok) {
-                const errText = await hfRes.text()
-                console.error('HF upscale error:', hfRes.status, errText)
-                if (hfRes.status === 503) {
-                    return NextResponse.json({ error: 'Model sedang loading (~20 detik). Coba lagi.' }, { status: 503 })
-                }
-                return NextResponse.json({ error: 'Gagal upscale foto' }, { status: 500 })
-            }
-
-            const resultBuffer = await hfRes.arrayBuffer()
+            const resultBuffer = await callHuggingFace('caidas/swin2SR-classical-sr-x2-64', imageBuffer, hfToken)
             const resultBase64 = Buffer.from(resultBuffer).toString('base64')
             return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
         }
 
         if (action === 'enhance') {
-            // --- FULL ENHANCE: remove bg first, then return ---
-            // Step 1: Remove background
-            const bgRes = await fetch(
-                'https://api-inference.huggingface.co/models/briaai/RMBG-2.0',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${hfToken}`,
-                        'Content-Type': 'application/octet-stream',
-                    },
-                    body: imageBuffer,
-                },
-            )
-
-            if (!bgRes.ok) {
-                const errText = await bgRes.text()
-                console.error('HF enhance bg error:', bgRes.status, errText)
-                if (bgRes.status === 503) {
-                    return NextResponse.json({ error: 'Model sedang loading (~20 detik). Coba lagi.' }, { status: 503 })
-                }
-                return NextResponse.json({ error: 'Gagal enhance foto' }, { status: 500 })
-            }
-
-            const noBgBuffer = await bgRes.arrayBuffer()
-
-            // Step 2: Upscale
-            const upRes = await fetch(
-                'https://api-inference.huggingface.co/models/caidas/swin2SR-lightweight-x2-64',
-                {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${hfToken}`,
-                        'Content-Type': 'application/octet-stream',
-                    },
-                    body: Buffer.from(noBgBuffer),
-                },
-            )
-
-            if (upRes.ok) {
-                const upBuffer = await upRes.arrayBuffer()
-                const resultBase64 = Buffer.from(upBuffer).toString('base64')
-                return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
-            }
-
-            // If upscale fails, return bg-removed version
+            // Remove background
+            const noBgBuffer = await callHuggingFace('briaai/RMBG-1.4', imageBuffer, hfToken)
             const resultBase64 = Buffer.from(noBgBuffer).toString('base64')
             return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
         }
 
-        return NextResponse.json({ error: `Action "${action}" tidak dikenali. Gunakan: remove_bg, upscale, enhance` }, { status: 400 })
+        return NextResponse.json({ error: `Action "${action}" tidak dikenali` }, { status: 400 })
     } catch (err) {
-        console.error('Photo enhance error:', err)
-        return NextResponse.json({ error: 'Gagal enhance foto' }, { status: 500 })
+        const msg = err instanceof Error ? err.message : 'Unknown error'
+        console.error('[enhance] Error:', msg)
+
+        if (msg === 'MODEL_LOADING') {
+            return NextResponse.json({ error: 'Model AI sedang loading. Coba lagi dalam 30 detik.' }, { status: 503 })
+        }
+
+        return NextResponse.json({ error: `Gagal enhance foto: ${msg}` }, { status: 500 })
     }
 }

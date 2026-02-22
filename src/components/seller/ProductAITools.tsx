@@ -84,6 +84,32 @@ export function ProductAITools({
         }
     }
 
+    // Compress image to fit API limits
+    function compressImage(dataUrl: string, maxSize: number = 800): Promise<string> {
+        return new Promise((resolve) => {
+            const img = new Image()
+            img.onload = () => {
+                const canvas = document.createElement('canvas')
+                let { width, height } = img
+                if (width > maxSize || height > maxSize) {
+                    if (width > height) {
+                        height = Math.round((height * maxSize) / width)
+                        width = maxSize
+                    } else {
+                        width = Math.round((width * maxSize) / height)
+                        height = maxSize
+                    }
+                }
+                canvas.width = width
+                canvas.height = height
+                const ctx = canvas.getContext('2d')!
+                ctx.drawImage(img, 0, 0, width, height)
+                resolve(canvas.toDataURL('image/jpeg', 0.85))
+            }
+            img.src = dataUrl
+        })
+    }
+
     // Handle file upload for enhancement
     function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
         const file = e.target.files?.[0]
@@ -100,8 +126,9 @@ export function ProductAITools({
         }
 
         const reader = new FileReader()
-        reader.onload = () => {
-            setUploadedPhoto(reader.result as string)
+        reader.onload = async () => {
+            const compressed = await compressImage(reader.result as string)
+            setUploadedPhoto(compressed)
             setEnhancedPhoto(null)
             setShowOriginal(false)
         }

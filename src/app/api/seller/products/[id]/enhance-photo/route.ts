@@ -3,7 +3,7 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 
 type Params = { params: Promise<{ id: string }> }
 
-// POST: enhance a product photo using AI
+// POST: enhance a product photo using Cloudflare Workers AI
 export async function POST(request: Request, { params }: Params) {
     const { id } = await params
     const supabase = await createSupabaseServerClient()
@@ -14,7 +14,7 @@ export async function POST(request: Request, { params }: Params) {
     // eslint-disable-next-line @typescript-eslint/no-explicit-any
     const { data: product } = await (supabase as any)
         .from('products')
-        .select('id, stores!inner(user_id)')
+        .select('id, name, stores!inner(user_id)')
         .eq('id', id)
         .single()
 
@@ -22,52 +22,57 @@ export async function POST(request: Request, { params }: Params) {
         return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
     }
 
-    const { image_url, prompt } = await request.json()
+    const { prompt } = await request.json()
 
-    if (!image_url) {
-        return NextResponse.json({ error: 'image_url is required' }, { status: 400 })
+    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
+    const aiToken = process.env.CLOUDFLARE_AI_TOKEN
+    if (!accountId || !aiToken) {
+        return NextResponse.json({ error: 'Cloudflare AI not configured' }, { status: 503 })
     }
 
-    const replicateToken = process.env.REPLICATE_API_TOKEN
-    if (!replicateToken) {
-        return NextResponse.json({ error: 'AI service not configured' }, { status: 503 })
-    }
+    const enhancePrompt = prompt || `professional product photography of ${product.name}, studio lighting, white background, sharp focus, high resolution, commercial photography, premium quality`
 
     try {
-        // Call Replicate API for image enhancement
-        const replicateRes = await fetch('https://api.replicate.com/v1/predictions', {
-            method: 'POST',
-            headers: {
-                'Authorization': `Bearer ${replicateToken}`,
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify({
-                version: 'a4a8bafd6089e1716b06057c42b19378250d008b80fe87caa5cd36d40c1eda90',
-                input: {
-                    image: image_url,
-                    prompt: prompt || 'high quality product photo, professional lighting, white background, sharp focus, commercial photography',
-                    negative_prompt: 'blurry, low quality, dark, noisy, watermark',
-                    num_inference_steps: 20,
-                    guidance_scale: 7.5,
+        // Use Cloudflare Workers AI — Stable Diffusion XL
+        const cfRes = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${aiToken}`,
+                    'Content-Type': 'application/json',
                 },
-            }),
-        })
+                body: JSON.stringify({
+                    prompt: enhancePrompt,
+                    negative_prompt: 'blurry, low quality, dark, noisy, watermark, ugly, distorted',
+                    num_steps: 20,
+                    guidance: 7.5,
+                    width: 1024,
+                    height: 1024,
+                }),
+            },
+        )
 
-        const prediction = await replicateRes.json()
-
-        if (!replicateRes.ok) {
+        if (!cfRes.ok) {
+            const err = await cfRes.json().catch(() => ({}))
+            console.error('Cloudflare AI error:', err)
             return NextResponse.json(
-                { error: prediction.detail || 'AI enhancement failed' },
+                { error: 'Image generation failed' },
                 { status: 500 },
             )
         }
 
-        // Return the prediction ID — client will poll for result
+        // Cloudflare returns raw image bytes
+        const imageBuffer = await cfRes.arrayBuffer()
+        const base64 = Buffer.from(imageBuffer).toString('base64')
+        const dataUrl = `data:image/png;base64,${base64}`
+
         return NextResponse.json({
-            prediction_id: prediction.id,
-            status: prediction.status,
+            image_url: dataUrl,
+            status: 'succeeded',
         })
-    } catch {
+    } catch (err) {
+        console.error('AI enhancement error:', err)
         return NextResponse.json({ error: 'AI service error' }, { status: 500 })
     }
 }

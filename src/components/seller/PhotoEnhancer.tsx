@@ -26,20 +26,16 @@ export function PhotoEnhancer({ productId, imageUrl, onAccept }: PhotoEnhancerPr
         body: JSON.stringify({ image_url: imageUrl }),
       })
 
+      const data = await res.json()
+
       if (!res.ok) {
-        const data = await res.json()
         toast.error(data.error || 'Gagal meningkatkan foto')
-        setLoading(false)
         return
       }
 
-      const { prediction_id } = await res.json()
-
-      // Poll for result
-      const result = await pollPrediction(prediction_id)
-      if (result) {
-        setEnhancedUrl(result)
-        toast.success('Foto berhasil ditingkatkan!')
+      if (data.image_url) {
+        setEnhancedUrl(data.image_url)
+        toast.success('Foto berhasil di-generate!')
       }
     } catch {
       toast.error('Terjadi kesalahan')
@@ -48,34 +44,11 @@ export function PhotoEnhancer({ productId, imageUrl, onAccept }: PhotoEnhancerPr
     }
   }
 
-  async function pollPrediction(id: string): Promise<string | null> {
-    const maxAttempts = 60
-    for (let i = 0; i < maxAttempts; i++) {
-      await new Promise((r) => setTimeout(r, 2000))
-
-      const res = await fetch(`https://api.replicate.com/v1/predictions/${id}`, {
-        headers: { Authorization: `Bearer ${process.env.NEXT_PUBLIC_REPLICATE_API_TOKEN || ''}` },
-      })
-      const pred = await res.json()
-
-      if (pred.status === 'succeeded') {
-        const output = Array.isArray(pred.output) ? pred.output[0] : pred.output
-        return output
-      }
-      if (pred.status === 'failed') {
-        toast.error('AI enhancement gagal')
-        return null
-      }
-    }
-    toast.error('Timeout — coba lagi nanti')
-    return null
-  }
-
   if (!enhancedUrl && !loading) {
     return (
       <Button variant="outline" size="sm" onClick={handleEnhance}>
         <Sparkles className="mr-1 h-3 w-3" />
-        AI Enhance
+        AI Generate Foto
       </Button>
     )
   }
@@ -85,26 +58,26 @@ export function PhotoEnhancer({ productId, imageUrl, onAccept }: PhotoEnhancerPr
       <CardHeader className="pb-3">
         <CardTitle className="flex items-center gap-2 text-base">
           <Sparkles className="h-4 w-4" />
-          AI Photo Enhancement
+          AI Photo Generation
         </CardTitle>
       </CardHeader>
       <CardContent>
         {loading ? (
           <div className="flex flex-col items-center gap-3 py-8">
             <Loader2 className="h-8 w-8 animate-spin text-gray-400" />
-            <p className="text-sm text-gray-500">Meningkatkan foto dengan AI...</p>
+            <p className="text-sm text-gray-500">Membuat foto produk dengan AI...</p>
+            <p className="text-xs text-gray-400">Biasanya 5-15 detik</p>
           </div>
         ) : enhancedUrl ? (
           <div className="space-y-4">
-            {/* Before / After */}
             <div className="relative overflow-hidden rounded-lg border">
               <img
                 src={showOriginal ? imageUrl : enhancedUrl}
-                alt={showOriginal ? 'Original' : 'Enhanced'}
+                alt={showOriginal ? 'Original' : 'AI Generated'}
                 className="w-full object-contain"
               />
               <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-0.5 text-xs text-white">
-                {showOriginal ? 'SEBELUM' : 'SESUDAH'}
+                {showOriginal ? 'ASLI' : 'AI GENERATED'}
               </span>
             </div>
 

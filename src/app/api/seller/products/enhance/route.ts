@@ -29,133 +29,84 @@ export async function POST(request: Request) {
     }
 
     try {
-        let sdPrompt = ''
-        let productDescriptionText = ''
+        console.log(`[enhance] Starting enhancement. Action: ${action}`)
 
-        // Extract raw base64 data
+        // Only support background removal for now, as generative upscale alters the product too much
+        if (action !== 'remove_bg' && action !== 'enhance') {
+            return NextResponse.json({ error: 'Fitur upscale sedang dalam perbaikan. Gunakan Hapus BG / Full Enhance.' }, { status: 400 })
+        }
+
+        // Clean base64 string
         const base64Data = image_base64.includes(',') ? image_base64.split(',')[1] : image_base64
+        const imageBuffer = Buffer.from(base64Data, 'base64')
 
-        // --- STEP 1: Get product physical description ---
-        try {
-            console.log(`[enhance] Step 1: Requesting Gemini Vision analysis...`)
+        // Using BRIA RMBG-2.0 Space on HuggingFace (Free & excellent for products)
+        // We use the direct API approach with gradio_client pattern
+        const spaceUrl = 'https://briaai-bria-rmbg-2-0.hf.space'
 
-            // API Key Rotation Logic
-            const geminiKeysStr = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || ''
-            const geminiKeys = geminiKeysStr.split(',').map(k => k.trim()).filter(Boolean)
+        console.log(`[enhance] Uploading to Space...`)
+        const formData = new FormData()
+        const blob = new Blob([new Uint8Array(imageBuffer)], { type: 'image/jpeg' })
+        formData.append('files', blob, 'image.jpg')
 
-            if (geminiKeys.length === 0) {
-                throw new Error('Tidak ada GEMINI_API_KEY yang tersedia')
-            }
+        const uploadRes = await fetch(`${spaceUrl}/upload`, {
+            method: 'POST',
+            body: formData,
+        })
 
-            // Pick a random key to distribute the load
-            const randomKey = geminiKeys[Math.floor(Math.random() * geminiKeys.length)]
-            console.log(`[enhance] Menggunakan Gemini API Key ke-${geminiKeys.indexOf(randomKey) + 1} dari ${geminiKeys.length} keys aktif`)
-
-            const ai = new GoogleGenAI({ apiKey: randomKey })
-
-            const visionPrompt = `Analyze this product photo. Describe the main product exactly as it looks in extreme detail:
-- Shape, form, and material
-- Primary and secondary colors
-- Any prominent text, labels, or branding details visible
-- Unique defining physical features
-Write the response as a continuous string of comma-separated keywords and short phrases, perfect for an AI image generator prompt to recreate this exact item.
-Do NOT include any introductory or concluding text. English language only.`
-
-            const imagePart = {
-                inlineData: { data: base64Data, mimeType: 'image/jpeg' }
-            }
-
-            const visionResult = await ai.models.generateContent({
-                model: 'gemini-2.0-flash',
-                contents: [visionPrompt, imagePart]
-            })
-
-            productDescriptionText = visionResult.text?.trim() || ''
-            productDescriptionText = productDescriptionText.replace(/^Here is.*:/i, '').replace(/\n/g, ' ').trim()
-            console.log(`[enhance] Gemini description: ${productDescriptionText.slice(0, 100)}...`)
-        } catch (geminiErr) {
-            console.warn('[enhance] Gemini failed/rate-limited. Falling back to Groq text description.', geminiErr)
-
-            // Fallback: If Gemini fails (e.g. rate limit), use Groq with the product name as fallback
-            const groqKey = process.env.GROQ_API_KEY
-            if (groqKey && product_name) {
-                const groqPrompt = `Write a highly detailed physical description of a product named "${product_name}" (Description: ${product_description || 'None'}).
-Describe its standard likely appearance, shape, colors, and materials.
-Write the response as a continuous string of comma-separated keywords and short phrases, perfect for an AI image generator prompt.
-English language only. No intro, no outro.`
-
-                const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        model: 'llama-3.3-70b-versatile',
-                        messages: [{ role: 'user', content: groqPrompt }],
-                        max_tokens: 200,
-                    }),
-                })
-
-                if (res.ok) {
-                    const data = await res.json()
-                    productDescriptionText = data.choices[0].message.content.trim()
-                    console.log(`[enhance] Groq fallback description: ${productDescriptionText.slice(0, 100)}...`)
-                }
-            }
-
-            // Ultimate fallback if both AI APIs fail
-            if (!productDescriptionText) {
-                productDescriptionText = product_name || 'commercial product'
-                console.log(`[enhance] Ultimate fallback to product name: ${productDescriptionText}`)
-            }
+        if (!uploadRes.ok) {
+            console.error('[enhance] Space upload failed:', uploadRes.status)
+            throw new Error('Gagal upload ke server AI')
         }
 
-        // --- STEP 2: Use Cloudflare SDXL to generate the enhanced photo ---
-        console.log(`[enhance] Step 2: Generating photo via Cloudflare... action=${action}`)
-        let sdNegative = 'blurry, low quality, dark, noisy, watermark, ugly, distorted, collage, multiple items, human hands, fingers, bad anatomy, bad lighting, text, text overlay, signature'
+        // Usually returns ["/tmp/gradio/xxx/image.jpg"]
+        const uploadPaths = await uploadRes.json()
+        const filePath = Array.isArray(uploadPaths) ? uploadPaths[0] : uploadPaths
+        console.log(`[enhance] Uploaded path: ${filePath}`)
 
-        if (action === 'remove_bg' || action === 'enhance') {
-            sdPrompt = `professional commercial product photography of [${productDescriptionText}], perfectly centered, isolated on pure white background, soft studio lighting, sharp focus, 8k resolution, high-end product display, clean minimalist look`
-        } else if (action === 'upscale') {
-            sdPrompt = `hyper-realistic extreme macro close-up of [${productDescriptionText}], incredible texture, 8k resolution, highly detailed, dramatic lighting, sharp focus, premium quality`
-            sdNegative += ', zoomed out, tiny'
-        } else if (action === 'lifestyle' || action === 'background') {
-            sdPrompt = `beautiful lifestyle product photography of [${productDescriptionText}], placed naturally in a stunning aesthetic environment, warm natural lighting, shallow depth of field (bokeh), instagram worthy, professional styling, highly detailed`
-        } else {
-            sdPrompt = `professional photo of [${productDescriptionText}], high quality, 8k`
+        console.log(`[enhance] Calling predict...`)
+        const predictRes = await fetch(`${spaceUrl}/api/predict`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+                data: [{ path: filePath, meta: { _type: 'gradio.FileData' } }],
+                fn_index: 0
+            }),
+        })
+
+        if (!predictRes.ok) {
+            console.error('[enhance] Space predict failed:', predictRes.status)
+            throw new Error('Gagal memproses gambar di AI (server sibuk)')
         }
 
-        const cfRes = await fetch(
-            `https://api.cloudflare.com/client/v4/accounts/${cfAccountId}/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img`,
-            {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${cfToken}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    prompt: sdPrompt,
-                    negative_prompt: sdNegative,
-                    image_b64: base64Data, // Stable Diffusion v1.5 img2img specific
-                    strength: action === 'upscale' ? 0.3 : 0.6,
-                    num_steps: 20,
-                    guidance: 7.5,
-                }),
-            },
-        )
+        const predictData = await predictRes.json()
 
-        if (!cfRes.ok) {
-            const err = await cfRes.json().catch(() => ({}))
-            console.error('[enhance] Cloudflare error:', JSON.stringify(err).slice(0, 300))
-            throw new Error(err?.errors?.[0]?.message || 'Gagal generate SDXL')
+        // Predict data structure is usually: { data: [ { path: "...", url: "..." } ], is_generating: false }
+        console.log(`[enhance] Predict success!`)
+
+        let resultUrl = ''
+        if (predictData?.data?.[0]?.url) {
+            resultUrl = predictData.data[0].url
+        } else if (predictData?.data?.[0]?.path) {
+            resultUrl = `${spaceUrl}/file=${predictData.data[0].path}`
         }
 
-        const cfBuffer = await cfRes.arrayBuffer()
-        const resultBase64 = Buffer.from(cfBuffer).toString('base64')
+        if (!resultUrl) {
+            throw new Error('URL hasil gambar tidak ditemukan')
+        }
 
-        return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
+        // Fetch the transparent background transparent image
+        const imgRes = await fetch(resultUrl)
+        if (!imgRes.ok) throw new Error('Gagal mendownload hasil gambar')
+
+        const outBuffer = await imgRes.arrayBuffer()
+        const outBase64 = Buffer.from(outBuffer).toString('base64')
+
+        return NextResponse.json({ result: `data:image/png;base64,${outBase64}` })
 
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[enhance] Error:', msg)
-        return NextResponse.json({ error: `Gagal memproses gambar: ${msg}` }, { status: 500 })
+        return NextResponse.json({ error: `Gagal enhance: ${msg}` }, { status: 500 })
     }
 }

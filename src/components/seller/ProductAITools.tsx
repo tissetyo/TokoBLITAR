@@ -172,7 +172,7 @@ export function ProductAITools({
                                 )}
                             </div>
 
-                            <div className="grid grid-cols-3 gap-2">
+                            <div className="grid grid-cols-2 gap-2">
                                 <Button type="button" variant="outline" size="sm"
                                     className="h-auto flex-col gap-1 py-2 text-[10px] hover:bg-orange-50 hover:border-orange-200"
                                     onClick={() => enhancePhoto('remove_bg')} disabled={loading !== null}>
@@ -180,20 +180,14 @@ export function ProductAITools({
                                     Hapus BG
                                 </Button>
                                 <Button type="button" variant="outline" size="sm"
-                                    className="h-auto flex-col gap-1 py-2 text-[10px] hover:bg-cyan-50 hover:border-cyan-200"
-                                    onClick={() => enhancePhoto('upscale')} disabled={loading !== null}>
-                                    {loading === 'enhance_upscale' ? <Loader2 className="h-4 w-4 animate-spin text-cyan-500" /> : <ZoomIn className="h-4 w-4 text-cyan-500" />}
-                                    Upscale
-                                </Button>
-                                <Button type="button" variant="outline" size="sm"
                                     className="h-auto flex-col gap-1 py-2 text-[10px] hover:bg-violet-50 hover:border-violet-200"
                                     onClick={() => enhancePhoto('enhance')} disabled={loading !== null}>
                                     {loading === 'enhance_enhance' ? <Loader2 className="h-4 w-4 animate-spin text-violet-500" /> : <Wand2 className="h-4 w-4 text-violet-500" />}
-                                    Full Enhance
+                                    Hapus BG & Shadow
                                 </Button>
                             </div>
 
-                            <div className="flex gap-2">
+                            <div className="flex gap-2 mt-3">
                                 {enhancedPhoto && (
                                     <Button type="button" size="sm" className="flex-1" onClick={() => {
                                         onImageGenerated(enhancedPhoto); setUploadedPhoto(null); setEnhancedPhoto(null); toast.success('Foto ditambahkan!')

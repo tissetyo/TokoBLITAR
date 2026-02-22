@@ -1,76 +1,165 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
-// Enhance a product photo:
-// 1. Use Groq/Gemini to describe the product from user's product name
-// 2. Use Cloudflare SDXL to generate a professional photo
+// Call a HuggingFace Space via Gradio API (free, no token needed for public spaces)
+async function callGradioSpace(
+    spaceUrl: string,
+    fnIndex: number,
+    data: unknown[],
+    hfToken?: string,
+): Promise<unknown> {
+    const headers: Record<string, string> = { 'Content-Type': 'application/json' }
+    if (hfToken) headers['Authorization'] = `Bearer ${hfToken}`
+
+    // Step 1: Queue the prediction
+    const queueRes = await fetch(`${spaceUrl}/call/predict`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ data, fn_index: fnIndex }),
+    })
+
+    if (!queueRes.ok) {
+        const errText = await queueRes.text()
+        console.error('[gradio] Queue failed:', queueRes.status, errText.slice(0, 300))
+        throw new Error(`Space queue failed: ${queueRes.status}`)
+    }
+
+    const { event_id } = await queueRes.json()
+    if (!event_id) throw new Error('No event_id from Space')
+
+    // Step 2: Poll for result via SSE
+    const resultRes = await fetch(`${spaceUrl}/call/predict/${event_id}`, { headers })
+    if (!resultRes.ok) {
+        throw new Error(`Space result failed: ${resultRes.status}`)
+    }
+
+    const text = await resultRes.text()
+    // SSE format: "event: ...\ndata: ...\n\n"
+    const lines = text.split('\n')
+    for (const line of lines) {
+        if (line.startsWith('data: ')) {
+            const dataStr = line.slice(6)
+            try {
+                const parsed = JSON.parse(dataStr)
+                return parsed
+            } catch {
+                // Not JSON, continue
+            }
+        }
+    }
+
+    throw new Error('No valid data in Space response')
+}
+
 export async function POST(request: Request) {
     const supabase = await createSupabaseServerClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
-    const aiToken = process.env.CLOUDFLARE_AI_TOKEN
-    if (!accountId || !aiToken) {
-        return NextResponse.json({ error: 'Cloudflare AI belum di-set' }, { status: 503 })
-    }
+    const hfToken = process.env.HF_API_TOKEN || undefined
 
     let body
     try { body = await request.json() } catch {
         return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
-    const { product_name, product_description, action } = body
-    if (!product_name) {
-        return NextResponse.json({ error: 'product_name is required' }, { status: 400 })
+    const { image_base64, action } = body
+    if (!image_base64) {
+        return NextResponse.json({ error: 'image_base64 is required' }, { status: 400 })
     }
 
+    // Build data URL from base64
+    const dataUrl = image_base64.startsWith('data:')
+        ? image_base64
+        : `data:image/jpeg;base64,${image_base64}`
+
+    console.log(`[enhance] action=${action}, imageLen=${image_base64.length}`)
+
     try {
-        let prompt = ''
-
         if (action === 'remove_bg' || action === 'enhance') {
-            prompt = `professional product photo of ${product_name}, ${product_description || 'high quality product'}, isolated on pure white background, studio lighting, soft shadows, centered composition, commercial product photography, sharp focus, high resolution, no text, no watermark, clean minimal style`
-        } else if (action === 'upscale') {
-            prompt = `ultra detailed close-up product photo of ${product_name}, ${product_description || 'premium product'}, macro photography, extreme detail and sharpness, professional studio lighting, white background, 8K resolution, commercial advertising quality, no text`
-        } else if (action === 'lifestyle') {
-            prompt = `lifestyle product photo of ${product_name}, ${product_description || 'beautiful product'}, in natural setting, warm ambient lighting, aesthetic composition, instagram worthy, professional photography, bokeh background, cozy atmosphere, no text, no watermark`
-        } else {
-            return NextResponse.json({ error: `Action "${action}" tidak dikenali` }, { status: 400 })
+            // Use RMBG-2.0 Space for background removal
+            const spaceUrl = 'https://briaai-bria-rmbg-2-0.hf.space'
+
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const result: any = await callGradioSpace(
+                spaceUrl,
+                0, // fn_index 0 = main predict function
+                [{ path: dataUrl, meta: { _type: 'gradio.FileData' } }],
+                hfToken,
+            )
+
+            // Result is typically [{ path: "...", url: "...", ... }] or [dataUrl]
+            if (Array.isArray(result)) {
+                const first = result[0]
+                if (typeof first === 'string' && first.startsWith('data:')) {
+                    return NextResponse.json({ result: first })
+                }
+                if (first && typeof first === 'object') {
+                    // Has a URL to the result file
+                    if (first.url) {
+                        const imgRes = await fetch(first.url)
+                        if (imgRes.ok) {
+                            const buf = await imgRes.arrayBuffer()
+                            const b64 = Buffer.from(buf).toString('base64')
+                            return NextResponse.json({ result: `data:image/png;base64,${b64}` })
+                        }
+                    }
+                    if (first.path && first.path.startsWith('data:')) {
+                        return NextResponse.json({ result: first.path })
+                    }
+                }
+            }
+
+            // If result is a direct object with url
+            if (result && typeof result === 'object' && !Array.isArray(result)) {
+                if (result.url) {
+                    const imgRes = await fetch(result.url)
+                    if (imgRes.ok) {
+                        const buf = await imgRes.arrayBuffer()
+                        const b64 = Buffer.from(buf).toString('base64')
+                        return NextResponse.json({ result: `data:image/png;base64,${b64}` })
+                    }
+                }
+            }
+
+            console.error('[enhance] Unexpected result:', JSON.stringify(result).slice(0, 500))
+            return NextResponse.json({ error: 'Format hasil tidak dikenali' }, { status: 500 })
         }
 
-        console.log(`[enhance] action=${action}, prompt=${prompt.slice(0, 80)}...`)
+        if (action === 'upscale') {
+            // Use an upscaler Space
+            const spaceUrl = 'https://bookbot-image-upscaling-playground.hf.space'
 
-        const cfRes = await fetch(
-            `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`,
-            {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${aiToken}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    prompt,
-                    negative_prompt: 'blurry, low quality, dark, noisy, watermark, ugly, distorted, text, logo, banner, collage, multiple items, hands, fingers',
-                    num_steps: 25,
-                    guidance: 7.5,
-                    width: 1024,
-                    height: 1024,
-                }),
-            },
-        )
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const result: any = await callGradioSpace(
+                spaceUrl,
+                0,
+                [{ path: dataUrl, meta: { _type: 'gradio.FileData' } }, 2], // 2x upscale
+                hfToken,
+            )
 
-        if (!cfRes.ok) {
-            const err = await cfRes.json().catch(() => ({}))
-            console.error('[enhance] Cloudflare error:', JSON.stringify(err).slice(0, 300))
-            return NextResponse.json({ error: 'Gagal generate foto profesional' }, { status: 500 })
+            if (Array.isArray(result)) {
+                const first = result[0]
+                if (typeof first === 'string' && first.startsWith('data:')) {
+                    return NextResponse.json({ result: first })
+                }
+                if (first?.url) {
+                    const imgRes = await fetch(first.url)
+                    if (imgRes.ok) {
+                        const buf = await imgRes.arrayBuffer()
+                        const b64 = Buffer.from(buf).toString('base64')
+                        return NextResponse.json({ result: `data:image/png;base64,${b64}` })
+                    }
+                }
+            }
+
+            return NextResponse.json({ error: 'Gagal upscale foto' }, { status: 500 })
         }
 
-        const imageBuffer = await cfRes.arrayBuffer()
-        const base64 = Buffer.from(imageBuffer).toString('base64')
-        return NextResponse.json({ result: `data:image/png;base64,${base64}` })
+        return NextResponse.json({ error: `Action "${action}" tidak dikenali` }, { status: 400 })
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[enhance] Error:', msg)
-        return NextResponse.json({ error: `Gagal: ${msg}` }, { status: 500 })
+        return NextResponse.json({ error: `Gagal enhance: ${msg}` }, { status: 500 })
     }
 }

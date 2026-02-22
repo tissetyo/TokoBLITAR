@@ -1,9 +1,9 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Sparkles, ImageIcon, FileText, Tags, Loader2, Check, X, Upload, Eraser, ZoomIn, Wand2 } from 'lucide-react'
+import { Sparkles, ImageIcon, FileText, Tags, Loader2, Check, X, Camera, Sun, Heart } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface ProductAIToolsProps {
@@ -28,11 +28,8 @@ export function ProductAITools({
     const [generatedImage, setGeneratedImage] = useState<string | null>(null)
     const [suggestedCategories, setSuggestedCategories] = useState<string[]>([])
 
-    // Photo enhancement state
-    const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null)
-    const [enhancedPhoto, setEnhancedPhoto] = useState<string | null>(null)
-    const [showOriginal, setShowOriginal] = useState(false)
-    const fileInputRef = useRef<HTMLInputElement>(null)
+    // Photo generation styles
+    const [generatedPhotos, setGeneratedPhotos] = useState<{ url: string; style: string }[]>([])
 
     async function generate(type: 'image' | 'description' | 'category') {
         if (!productName.trim()) {
@@ -84,88 +81,34 @@ export function ProductAITools({
         }
     }
 
-    // Compress image to fit API limits
-    function compressImage(dataUrl: string, maxSize: number = 800): Promise<string> {
-        return new Promise((resolve) => {
-            const img = new Image()
-            img.onload = () => {
-                const canvas = document.createElement('canvas')
-                let { width, height } = img
-                if (width > maxSize || height > maxSize) {
-                    if (width > height) {
-                        height = Math.round((height * maxSize) / width)
-                        width = maxSize
-                    } else {
-                        width = Math.round((width * maxSize) / height)
-                        height = maxSize
-                    }
-                }
-                canvas.width = width
-                canvas.height = height
-                const ctx = canvas.getContext('2d')!
-                ctx.drawImage(img, 0, 0, width, height)
-                resolve(canvas.toDataURL('image/jpeg', 0.85))
-            }
-            img.src = dataUrl
-        })
-    }
-
-    // Handle file upload for enhancement
-    function handleFileSelect(e: React.ChangeEvent<HTMLInputElement>) {
-        const file = e.target.files?.[0]
-        if (!file) return
-
-        if (!file.type.startsWith('image/')) {
-            toast.error('File harus berupa gambar')
+    // Generate AI product photo with specific style
+    async function generatePhoto(style: 'enhance' | 'upscale' | 'lifestyle') {
+        if (!productName.trim()) {
+            toast.error('Isi nama produk terlebih dahulu')
             return
         }
 
-        if (file.size > 10 * 1024 * 1024) {
-            toast.error('Ukuran file maksimal 10MB')
-            return
-        }
-
-        const reader = new FileReader()
-        reader.onload = async () => {
-            const compressed = await compressImage(reader.result as string)
-            setUploadedPhoto(compressed)
-            setEnhancedPhoto(null)
-            setShowOriginal(false)
-        }
-        reader.readAsDataURL(file)
-        e.target.value = ''
-    }
-
-    // Enhance uploaded photo
-    async function enhancePhoto(action: 'remove_bg' | 'upscale' | 'enhance') {
-        if (!uploadedPhoto) return
-
-        setLoading(`enhance_${action}`)
+        setLoading(`photo_${style}`)
         try {
-            // Extract base64 from data URL
-            const base64 = uploadedPhoto.split(',')[1]
-
             const res = await fetch('/api/seller/products/enhance', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image_base64: base64, action }),
+                body: JSON.stringify({
+                    product_name: productName,
+                    product_description: productDescription,
+                    action: style,
+                }),
             })
 
             const data = await res.json()
             if (!res.ok) {
-                toast.error(data.error || 'Gagal enhance foto')
-                if (res.status === 503) {
-                    toast.info('Coba lagi dalam beberapa detik...')
-                }
+                toast.error(data.error || 'Gagal generate foto')
                 return
             }
 
-            setEnhancedPhoto(data.result)
-            toast.success(
-                action === 'remove_bg' ? 'Background berhasil dihapus!' :
-                    action === 'upscale' ? 'Foto berhasil di-upscale!' :
-                        'Foto berhasil di-enhance!'
-            )
+            const label = style === 'enhance' ? '🤍 Studio' : style === 'upscale' ? '🔍 Detail' : '🌿 Lifestyle'
+            setGeneratedPhotos(prev => [...prev, { url: data.result, style: label }])
+            toast.success('Foto AI berhasil di-generate!')
         } catch {
             toast.error('Terjadi kesalahan')
         } finally {
@@ -183,131 +126,97 @@ export function ProductAITools({
                 </CardTitle>
             </CardHeader>
             <CardContent className="space-y-4">
-                {/* ===== PHOTO ENHANCEMENT SECTION ===== */}
+                {/* ===== PHOTO GENERATION SECTION ===== */}
                 <div className="space-y-3">
-                    <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">📸 Enhance Foto Produk</p>
+                    <p className="text-xs font-semibold text-gray-600 uppercase tracking-wide">📸 AI Foto Produk</p>
+                    <p className="text-xs text-gray-400">Isi nama produk, lalu pilih gaya foto yang diinginkan</p>
 
-                    {!uploadedPhoto ? (
-                        <div
-                            className="flex cursor-pointer flex-col items-center gap-2 rounded-lg border-2 border-dashed border-blue-200 bg-white/80 px-4 py-6 transition-colors hover:border-blue-400 hover:bg-blue-50/50"
-                            onClick={() => fileInputRef.current?.click()}
+                    <div className="grid grid-cols-3 gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-auto flex-col gap-1 py-2.5 text-[10px] hover:bg-white hover:border-blue-200"
+                            onClick={() => generatePhoto('enhance')}
+                            disabled={loading !== null}
                         >
-                            <Upload className="h-8 w-8 text-blue-400" />
-                            <span className="text-sm font-medium text-gray-600">Upload foto mentah</span>
-                            <span className="text-xs text-gray-400">AI akan perbagus jadi foto display profesional</span>
-                            <input
-                                ref={fileInputRef}
-                                type="file"
-                                accept="image/*"
-                                onChange={handleFileSelect}
-                                className="hidden"
-                            />
-                        </div>
-                    ) : (
-                        <div className="space-y-3">
-                            {/* Photo preview */}
-                            <div className="relative overflow-hidden rounded-lg border bg-white">
-                                <img
-                                    src={enhancedPhoto && !showOriginal ? enhancedPhoto : uploadedPhoto}
-                                    alt={enhancedPhoto && !showOriginal ? 'Enhanced' : 'Original'}
-                                    className="w-full object-contain"
-                                    style={{ maxHeight: 250 }}
-                                />
-                                <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
-                                    {enhancedPhoto && !showOriginal ? '✨ HASIL AI' : '📷 ASLI'}
-                                </span>
-                                {enhancedPhoto && (
+                            {loading === 'photo_enhance' ? (
+                                <Loader2 className="h-4 w-4 animate-spin text-blue-500" />
+                            ) : (
+                                <Camera className="h-4 w-4 text-blue-500" />
+                            )}
+                            Studio White
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-auto flex-col gap-1 py-2.5 text-[10px] hover:bg-white hover:border-amber-200"
+                            onClick={() => generatePhoto('upscale')}
+                            disabled={loading !== null}
+                        >
+                            {loading === 'photo_upscale' ? (
+                                <Loader2 className="h-4 w-4 animate-spin text-amber-500" />
+                            ) : (
+                                <Sun className="h-4 w-4 text-amber-500" />
+                            )}
+                            Detail Close-up
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="h-auto flex-col gap-1 py-2.5 text-[10px] hover:bg-white hover:border-pink-200"
+                            onClick={() => generatePhoto('lifestyle')}
+                            disabled={loading !== null}
+                        >
+                            {loading === 'photo_lifestyle' ? (
+                                <Loader2 className="h-4 w-4 animate-spin text-pink-500" />
+                            ) : (
+                                <Heart className="h-4 w-4 text-pink-500" />
+                            )}
+                            Lifestyle
+                        </Button>
+                    </div>
+                </div>
+
+                {/* Generated photo results */}
+                {generatedPhotos.length > 0 && (
+                    <div className="space-y-2">
+                        {generatedPhotos.map((photo, i) => (
+                            <div key={i} className="space-y-2 rounded-lg border bg-white p-3">
+                                <div className="flex items-center justify-between">
+                                    <p className="text-xs font-medium text-gray-500">{photo.style}</p>
                                     <button
                                         type="button"
-                                        onClick={() => setShowOriginal(!showOriginal)}
-                                        className="absolute right-2 top-2 rounded bg-black/60 px-2 py-0.5 text-[10px] text-white hover:bg-black/80"
+                                        onClick={() => setGeneratedPhotos(prev => prev.filter((_, j) => j !== i))}
+                                        className="text-gray-400 hover:text-gray-600"
                                     >
-                                        {showOriginal ? 'Lihat Hasil' : 'Lihat Asli'}
+                                        <X className="h-3 w-3" />
                                     </button>
-                                )}
-                            </div>
-
-                            {/* Enhancement action buttons */}
-                            <div className="grid grid-cols-3 gap-2">
+                                </div>
+                                <img
+                                    src={photo.url}
+                                    alt={`AI ${photo.style}`}
+                                    className="w-full rounded-lg object-contain"
+                                    style={{ maxHeight: 250 }}
+                                />
                                 <Button
                                     type="button"
-                                    variant="outline"
                                     size="sm"
-                                    className="h-auto flex-col gap-1 py-2 text-[10px] hover:bg-orange-50 hover:border-orange-200"
-                                    onClick={() => enhancePhoto('remove_bg')}
-                                    disabled={loading !== null}
-                                >
-                                    {loading === 'enhance_remove_bg' ? (
-                                        <Loader2 className="h-4 w-4 animate-spin text-orange-500" />
-                                    ) : (
-                                        <Eraser className="h-4 w-4 text-orange-500" />
-                                    )}
-                                    Hapus BG
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-auto flex-col gap-1 py-2 text-[10px] hover:bg-cyan-50 hover:border-cyan-200"
-                                    onClick={() => enhancePhoto('upscale')}
-                                    disabled={loading !== null}
-                                >
-                                    {loading === 'enhance_upscale' ? (
-                                        <Loader2 className="h-4 w-4 animate-spin text-cyan-500" />
-                                    ) : (
-                                        <ZoomIn className="h-4 w-4 text-cyan-500" />
-                                    )}
-                                    Upscale
-                                </Button>
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
-                                    className="h-auto flex-col gap-1 py-2 text-[10px] hover:bg-violet-50 hover:border-violet-200"
-                                    onClick={() => enhancePhoto('enhance')}
-                                    disabled={loading !== null}
-                                >
-                                    {loading === 'enhance_enhance' ? (
-                                        <Loader2 className="h-4 w-4 animate-spin text-violet-500" />
-                                    ) : (
-                                        <Wand2 className="h-4 w-4 text-violet-500" />
-                                    )}
-                                    Full Enhance
-                                </Button>
-                            </div>
-
-                            {/* Accept / Reset */}
-                            <div className="flex gap-2">
-                                {enhancedPhoto && (
-                                    <Button
-                                        type="button"
-                                        size="sm"
-                                        className="flex-1"
-                                        onClick={() => {
-                                            onImageGenerated(enhancedPhoto)
-                                            setUploadedPhoto(null)
-                                            setEnhancedPhoto(null)
-                                            toast.success('Foto ditambahkan!')
-                                        }}
-                                    >
-                                        <Check className="mr-1 h-3 w-3" /> Gunakan Hasil
-                                    </Button>
-                                )}
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    size="sm"
+                                    className="w-full"
                                     onClick={() => {
-                                        setUploadedPhoto(null)
-                                        setEnhancedPhoto(null)
+                                        onImageGenerated(photo.url)
+                                        setGeneratedPhotos(prev => prev.filter((_, j) => j !== i))
+                                        toast.success('Foto ditambahkan!')
                                     }}
                                 >
-                                    <X className="mr-1 h-3 w-3" /> Reset
+                                    <Check className="mr-1 h-3 w-3" /> Gunakan Foto Ini
                                 </Button>
                             </div>
-                        </div>
-                    )}
-                </div>
+                        ))}
+                    </div>
+                )}
 
                 <div className="border-t" />
 
@@ -367,33 +276,12 @@ export function ProductAITools({
                 {generatedImage && (
                     <div className="space-y-2 rounded-lg border bg-white p-3">
                         <p className="text-xs font-medium text-gray-500">📸 Foto AI Generated</p>
-                        <img
-                            src={generatedImage}
-                            alt="AI Generated"
-                            className="w-full rounded-lg object-contain"
-                            style={{ maxHeight: 300 }}
-                        />
+                        <img src={generatedImage} alt="AI Generated" className="w-full rounded-lg object-contain" style={{ maxHeight: 300 }} />
                         <div className="flex gap-2">
-                            <Button
-                                type="button"
-                                size="sm"
-                                className="flex-1"
-                                onClick={() => {
-                                    onImageGenerated(generatedImage)
-                                    setGeneratedImage(null)
-                                    toast.success('Foto ditambahkan!')
-                                }}
-                            >
+                            <Button type="button" size="sm" className="flex-1" onClick={() => { onImageGenerated(generatedImage); setGeneratedImage(null); toast.success('Foto ditambahkan!') }}>
                                 <Check className="mr-1 h-3 w-3" /> Gunakan
                             </Button>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setGeneratedImage(null)}
-                            >
-                                <X className="h-3 w-3" />
-                            </Button>
+                            <Button type="button" variant="outline" size="sm" onClick={() => setGeneratedImage(null)}><X className="h-3 w-3" /></Button>
                         </div>
                     </div>
                 )}
@@ -404,26 +292,10 @@ export function ProductAITools({
                         <p className="text-xs font-medium text-gray-500">📝 Deskripsi AI Generated</p>
                         <p className="whitespace-pre-wrap text-sm text-gray-700">{generatedDesc}</p>
                         <div className="flex gap-2">
-                            <Button
-                                type="button"
-                                size="sm"
-                                className="flex-1"
-                                onClick={() => {
-                                    onDescriptionGenerated(generatedDesc)
-                                    setGeneratedDesc(null)
-                                    toast.success('Deskripsi diterapkan!')
-                                }}
-                            >
+                            <Button type="button" size="sm" className="flex-1" onClick={() => { onDescriptionGenerated(generatedDesc); setGeneratedDesc(null); toast.success('Deskripsi diterapkan!') }}>
                                 <Check className="mr-1 h-3 w-3" /> Gunakan
                             </Button>
-                            <Button
-                                type="button"
-                                variant="outline"
-                                size="sm"
-                                onClick={() => setGeneratedDesc(null)}
-                            >
-                                <X className="h-3 w-3" />
-                            </Button>
+                            <Button type="button" variant="outline" size="sm" onClick={() => setGeneratedDesc(null)}><X className="h-3 w-3" /></Button>
                         </div>
                     </div>
                 )}
@@ -434,16 +306,8 @@ export function ProductAITools({
                         <p className="text-xs font-medium text-gray-500">🏷️ Saran Kategori</p>
                         <div className="flex flex-wrap gap-2">
                             {suggestedCategories.map((cat) => (
-                                <button
-                                    key={cat}
-                                    type="button"
-                                    className="rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700 transition-colors hover:bg-green-100"
-                                    onClick={() => {
-                                        onCategorySelected(cat)
-                                        setSuggestedCategories([])
-                                        toast.success(`Kategori "${cat}" dipilih`)
-                                    }}
-                                >
+                                <button key={cat} type="button" className="rounded-full bg-green-50 px-3 py-1 text-xs font-medium text-green-700 transition-colors hover:bg-green-100"
+                                    onClick={() => { onCategorySelected(cat); setSuggestedCategories([]); toast.success(`Kategori "${cat}" dipilih`) }}>
                                     {cat}
                                 </button>
                             ))}
@@ -453,7 +317,7 @@ export function ProductAITools({
 
                 {loading && (
                     <p className="text-center text-xs text-gray-400">
-                        {loading.startsWith('enhance') ? '⏳ Memproses foto... (~15 detik)' :
+                        {loading.startsWith('photo_') ? '⏳ Membuat foto AI... (~10 detik)' :
                             loading === 'image' ? '⏳ Membuat foto... (~10 detik)' : '⏳ Generating...'}
                     </p>
                 )}

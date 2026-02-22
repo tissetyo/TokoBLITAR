@@ -35,7 +35,20 @@ export async function POST(request: Request) {
         // --- STEP 1: Get product physical description ---
         try {
             console.log(`[enhance] Step 1: Requesting Gemini Vision analysis...`)
-            const ai = new GoogleGenAI({ apiKey: geminiKey })
+
+            // API Key Rotation Logic
+            const geminiKeysStr = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || ''
+            const geminiKeys = geminiKeysStr.split(',').map(k => k.trim()).filter(Boolean)
+
+            if (geminiKeys.length === 0) {
+                throw new Error('Tidak ada GEMINI_API_KEY yang tersedia')
+            }
+
+            // Pick a random key to distribute the load
+            const randomKey = geminiKeys[Math.floor(Math.random() * geminiKeys.length)]
+            console.log(`[enhance] Menggunakan Gemini API Key ke-${geminiKeys.indexOf(randomKey) + 1} dari ${geminiKeys.length} keys aktif`)
+
+            const ai = new GoogleGenAI({ apiKey: randomKey })
 
             // Extract raw base64 data
             const base64Data = image_base64.includes(',') ? image_base64.split(',')[1] : image_base64

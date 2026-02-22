@@ -103,9 +103,15 @@ Jangan berikan penjelasan, hanya JSON array.`
             }
 
             // Fallback to Gemini
-            if (geminiKey) {
+            const geminiKeysStr = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || ''
+            const geminiKeys = geminiKeysStr.split(',').map(k => k.trim()).filter(Boolean)
+
+            if (geminiKeys.length > 0) {
+                const randomKey = geminiKeys[Math.floor(Math.random() * geminiKeys.length)]
+                console.log(`[ai-generate] Menggunakan Gemini API Key ke-${geminiKeys.indexOf(randomKey) + 1} dari ${geminiKeys.length} keys aktif`)
+
                 const { GoogleGenAI } = await import('@google/genai')
-                const ai = new GoogleGenAI({ apiKey: geminiKey })
+                const ai = new GoogleGenAI({ apiKey: randomKey })
                 const response = await ai.models.generateContent({
                     model: 'gemini-2.0-flash-lite',
                     contents: prompt,
@@ -113,7 +119,7 @@ Jangan berikan penjelasan, hanya JSON array.`
                 return NextResponse.json({ result: response.text || '' })
             }
 
-            return NextResponse.json({ error: 'Tidak ada AI yang tersedia (set GROQ_API_KEY atau GEMINI_API_KEY)' }, { status: 503 })
+            return NextResponse.json({ error: 'Tidak ada AI yang tersedia (set GROQ_API_KEY atau GEMINI_API_KEYS)' }, { status: 503 })
         } catch (err) {
             console.error('Text gen error:', err)
             return NextResponse.json({ error: 'Gagal generate konten' }, { status: 500 })

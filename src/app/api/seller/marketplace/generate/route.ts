@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import Anthropic from '@anthropic-ai/sdk'
+import { GoogleGenAI } from '@google/genai'
 
 // POST: Generate platform-specific content using AI + store data
 export async function POST(request: Request) {
@@ -18,14 +18,13 @@ export async function POST(request: Request) {
     if (!store) return NextResponse.json({ error: 'Store not found' }, { status: 404 })
 
     const { type, platform } = await request.json()
-    // type: 'description' | 'categories' | 'bio' | 'hashtags' | 'seo'
 
-    const apiKey = process.env.ANTHROPIC_API_KEY
+    const apiKey = process.env.GEMINI_API_KEY
     if (!apiKey) {
-        return NextResponse.json({ error: 'AI not configured' }, { status: 500 })
+        return NextResponse.json({ error: 'AI not configured. Set GEMINI_API_KEY.' }, { status: 500 })
     }
 
-    const client = new Anthropic({ apiKey })
+    const ai = new GoogleGenAI({ apiKey })
 
     const storeInfo = `
 Nama toko: ${store.name}
@@ -37,25 +36,25 @@ Lokasi: Kabupaten Blitar, Jawa Timur, Indonesia
 
     const prompts: Record<string, Record<string, string>> = {
         'google-maps': {
-            description: `Buatkan deskripsi bisnis untuk Google Business Profile berdasarkan data toko ini:\n${storeInfo}\nBuat dalam bahasa Indonesia, maksimal 750 karakter, menarik, profesional, dan mengandung kata kunci yang membantu pencarian Google Maps. Sertakan lokasi Blitar.`,
-            categories: `Berdasarkan data toko ini:\n${storeInfo}\nSarankan 3-5 kategori Google Business Profile yang paling relevan. Format: satu kategori per baris, tanpa numbering.`,
-            seo: `Buatkan 5 kata kunci SEO untuk Google Business Profile toko ini:\n${storeInfo}\nFormat: satu kata kunci per baris, dalam bahasa Indonesia. Sertakan kata kunci lokal (Blitar).`,
+            description: `Buatkan deskripsi bisnis untuk Google Business Profile berdasarkan data toko ini:\n${storeInfo}\nBuat dalam bahasa Indonesia, maksimal 750 karakter, menarik, profesional, dan mengandung kata kunci yang membantu pencarian Google Maps. Sertakan lokasi Blitar. Langsung tulis deskripsinya saja tanpa judul atau penjelasan.`,
+            categories: `Berdasarkan data toko ini:\n${storeInfo}\nSarankan 3-5 kategori Google Business Profile yang paling relevan. Format: satu kategori per baris, tanpa numbering, tanpa penjelasan tambahan.`,
+            seo: `Buatkan 5 kata kunci SEO untuk Google Business Profile toko ini:\n${storeInfo}\nFormat: satu kata kunci per baris, dalam bahasa Indonesia. Sertakan kata kunci lokal (Blitar). Tanpa penjelasan tambahan.`,
         },
         tokopedia: {
-            description: `Buatkan deskripsi toko untuk Tokopedia Seller Center berdasarkan data ini:\n${storeInfo}\nBuat dalam bahasa Indonesia, menarik untuk pembeli online, maksimal 500 karakter. Tekankan keunggulan produk UMKM Blitar.`,
-            categories: `Berdasarkan data toko ini:\n${storeInfo}\nSarankan 3 kategori produk Tokopedia yang paling relevan. Format: satu kategori per baris.`,
+            description: `Buatkan deskripsi toko untuk Tokopedia Seller Center berdasarkan data ini:\n${storeInfo}\nBuat dalam bahasa Indonesia, menarik untuk pembeli online, maksimal 500 karakter. Langsung tulis deskripsinya saja.`,
+            categories: `Berdasarkan data toko ini:\n${storeInfo}\nSarankan 3 kategori produk Tokopedia yang paling relevan. Format: satu kategori per baris, tanpa penjelasan.`,
         },
         shopee: {
-            description: `Buatkan deskripsi toko untuk Shopee Seller Centre berdasarkan data ini:\n${storeInfo}\nBuat dalam bahasa Indonesia, friendly dan menarik, maksimal 500 karakter. Cocok untuk pembeli Shopee.`,
+            description: `Buatkan deskripsi toko untuk Shopee Seller Centre berdasarkan data ini:\n${storeInfo}\nBuat dalam bahasa Indonesia, friendly dan menarik, maksimal 500 karakter. Langsung tulis deskripsinya saja.`,
             categories: `Berdasarkan data toko ini:\n${storeInfo}\nSarankan 3 kategori produk Shopee yang paling relevan. Format: satu kategori per baris.`,
         },
         lazada: {
-            description: `Buatkan deskripsi toko untuk Lazada Seller Center berdasarkan data ini:\n${storeInfo}\nBuat dalam bahasa Indonesia, profesional, maksimal 500 karakter.`,
+            description: `Buatkan deskripsi toko untuk Lazada Seller Center berdasarkan data ini:\n${storeInfo}\nBuat dalam bahasa Indonesia, profesional, maksimal 500 karakter. Langsung tulis deskripsinya saja.`,
         },
         instagram: {
-            bio: `Buatkan bio Instagram Business yang menarik berdasarkan data toko ini:\n${storeInfo}\nMaksimal 150 karakter. Sertakan emoji yang relevan. Sertakan call-to-action.`,
-            hashtags: `Buatkan 15 hashtag Instagram yang relevan untuk toko ini:\n${storeInfo}\nCampuran hashtag populer dan lokal (Blitar). Format: satu baris, dipisahkan spasi.`,
-            description: `Buatkan template caption Instagram pertama untuk toko ini:\n${storeInfo}\nBuat caption perkenalan toko, friendly, dengan emoji, dan hashtag di akhir. Maksimal 300 karakter.`,
+            bio: `Buatkan bio Instagram Business yang menarik berdasarkan data toko ini:\n${storeInfo}\nMaksimal 150 karakter. Sertakan emoji yang relevan dan call-to-action. Langsung tulis bionya saja.`,
+            hashtags: `Buatkan 15 hashtag Instagram yang relevan untuk toko ini:\n${storeInfo}\nCampuran hashtag populer dan lokal (Blitar). Format: satu baris, dipisahkan spasi, tanpa penjelasan.`,
+            description: `Buatkan template caption Instagram pertama untuk toko ini:\n${storeInfo}\nBuat caption perkenalan toko, friendly, dengan emoji, dan hashtag di akhir. Maksimal 300 karakter. Langsung tulis captionnya saja.`,
         },
     }
 
@@ -65,15 +64,15 @@ Lokasi: Kabupaten Blitar, Jawa Timur, Indonesia
     }
 
     try {
-        const message = await client.messages.create({
-            model: 'claude-sonnet-4-20250514',
-            max_tokens: 500,
-            messages: [{ role: 'user', content: prompt }],
+        const response = await ai.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: prompt,
         })
 
-        const text = message.content[0].type === 'text' ? message.content[0].text : ''
+        const text = response.text || ''
         return NextResponse.json({ content: text })
-    } catch {
+    } catch (err) {
+        console.error('Gemini API error:', err)
         return NextResponse.json({ error: 'AI generation failed' }, { status: 500 })
     }
 }

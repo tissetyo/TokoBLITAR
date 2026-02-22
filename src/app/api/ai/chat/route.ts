@@ -309,7 +309,8 @@ async function handleGroq(apiKey: string, modelId: string, messages: { role: str
         ...messages.map((m) => ({ role: m.role === 'assistant' ? 'assistant' : 'user', content: m.content })),
     ]
 
-    const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+    // First try with tools
+    let res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
         method: 'POST',
         headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -321,9 +322,30 @@ async function handleGroq(apiKey: string, modelId: string, messages: { role: str
         }),
     })
 
+    // If tool call failed, retry WITHOUT tools
     if (!res.ok) {
-        const err = await res.json().catch(() => ({}))
-        throw new Error(JSON.stringify(err))
+        const errBody = await res.json().catch(() => ({}))
+        const errMsg = errBody?.error?.message || ''
+        const errType = errBody?.error?.type || ''
+
+        if (errType === 'invalid_request_error' || errMsg.includes('tool')) {
+            // Retry without tools — AI hallucinated a tool call
+            res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    model: modelId,
+                    messages: groqMessages,
+                    max_tokens: 2048,
+                }),
+            })
+            if (!res.ok) {
+                const err2 = await res.json().catch(() => ({}))
+                throw new Error(JSON.stringify(err2))
+            }
+        } else {
+            throw new Error(JSON.stringify(errBody))
+        }
     }
 
     const data = await res.json()
@@ -344,25 +366,30 @@ async function handleGroq(apiKey: string, modelId: string, messages: { role: str
         }
 
         // Follow-up with tool results
-        const followUpMessages = [
-            ...groqMessages,
-            message,
-            ...toolResults.map((tr, i) => ({
-                role: 'tool' as const,
-                tool_call_id: message.tool_calls[i].id,
-                content: tr.result,
-            })),
-        ]
+        try {
+            const followUpMessages = [
+                ...groqMessages,
+                message,
+                ...toolResults.map((tr, i) => ({
+                    role: 'tool' as const,
+                    tool_call_id: message.tool_calls[i].id,
+                    content: tr.result,
+                })),
+            ]
 
-        const followUpRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-            method: 'POST',
-            headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
-            body: JSON.stringify({ model: modelId, messages: followUpMessages, max_tokens: 2048 }),
-        })
+            const followUpRes = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${apiKey}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model: modelId, messages: followUpMessages, max_tokens: 2048 }),
+            })
 
-        if (followUpRes.ok) {
-            const followUpData = await followUpRes.json()
-            textContent = followUpData.choices?.[0]?.message?.content || textContent
+            if (followUpRes.ok) {
+                const followUpData = await followUpRes.json()
+                textContent = followUpData.choices?.[0]?.message?.content || textContent
+            }
+        } catch {
+            // If follow-up fails, use tool results directly
+            textContent = toolResults.map(tr => `✅ ${tr.tool}: ${tr.result}`).join('\n\n')
         }
     }
 

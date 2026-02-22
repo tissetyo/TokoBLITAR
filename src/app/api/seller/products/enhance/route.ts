@@ -32,6 +32,9 @@ export async function POST(request: Request) {
         let sdPrompt = ''
         let productDescriptionText = ''
 
+        // Extract raw base64 data
+        const base64Data = image_base64.includes(',') ? image_base64.split(',')[1] : image_base64
+
         // --- STEP 1: Get product physical description ---
         try {
             console.log(`[enhance] Step 1: Requesting Gemini Vision analysis...`)
@@ -49,9 +52,6 @@ export async function POST(request: Request) {
             console.log(`[enhance] Menggunakan Gemini API Key ke-${geminiKeys.indexOf(randomKey) + 1} dari ${geminiKeys.length} keys aktif`)
 
             const ai = new GoogleGenAI({ apiKey: randomKey })
-
-            // Extract raw base64 data
-            const base64Data = image_base64.includes(',') ? image_base64.split(',')[1] : image_base64
 
             const visionPrompt = `Analyze this product photo. Describe the main product exactly as it looks in extreme detail:
 - Shape, form, and material
@@ -134,10 +134,10 @@ English language only. No intro, no outro.`
                 body: JSON.stringify({
                     prompt: sdPrompt,
                     negative_prompt: sdNegative,
+                    image_b64: base64Data, // Switch to Image-To-Image
+                    strength: action === 'upscale' ? 0.3 : 0.6, // Lower strength retains more original pixels
                     num_steps: 20,
                     guidance: 7.5,
-                    width: 1024,
-                    height: 1024,
                 }),
             },
         )

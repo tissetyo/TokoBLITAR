@@ -124,7 +124,7 @@ English language only. No intro, no outro.`
         }
 
         const cfRes = await fetch(
-            `https://api.cloudflare.com/client/v4/accounts/${cfAccountId}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`,
+            `https://api.cloudflare.com/client/v4/accounts/${cfAccountId}/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img`,
             {
                 method: 'POST',
                 headers: {
@@ -134,8 +134,8 @@ English language only. No intro, no outro.`
                 body: JSON.stringify({
                     prompt: sdPrompt,
                     negative_prompt: sdNegative,
-                    image_b64: base64Data, // Switch to Image-To-Image
-                    strength: action === 'upscale' ? 0.3 : 0.6, // Lower strength retains more original pixels
+                    image_b64: base64Data, // Stable Diffusion v1.5 img2img specific
+                    strength: action === 'upscale' ? 0.3 : 0.6,
                     num_steps: 20,
                     guidance: 7.5,
                 }),

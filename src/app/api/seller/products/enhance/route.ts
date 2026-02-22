@@ -1,46 +1,58 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 
-// Helper: call HuggingFace with retry on 503 (model loading)
-async function callHuggingFace(model: string, imageBuffer: Buffer, token: string, retries = 2): Promise<ArrayBuffer> {
-    for (let i = 0; i <= retries; i++) {
-        const res = await fetch(
-            `https://api-inference.huggingface.co/models/${model}`,
-            {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${token}`,
-                    'Content-Type': 'application/octet-stream',
-                    'x-wait-for-model': 'true',
-                },
-                body: new Uint8Array(imageBuffer),
+const HF_MODELS = {
+    remove_bg: 'briaai/RMBG-1.4',
+    upscale: 'caidas/swin2SR-classical-sr-x2-64',
+}
+
+async function callHF(model: string, imageBuffer: Buffer, token: string): Promise<ArrayBuffer> {
+    // Try new router URL first, then fallback to old API
+    const urls = [
+        `https://router.huggingface.co/hf-inference/models/${model}`,
+        `https://api-inference.huggingface.co/models/${model}`,
+    ]
+
+    let lastError = ''
+    for (const url of urls) {
+        console.log(`[enhance] Trying: ${url}`)
+        const res = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Authorization': `Bearer ${token}`,
+                'Content-Type': 'application/octet-stream',
+                'x-wait-for-model': 'true',
             },
-        )
+            body: new Uint8Array(imageBuffer),
+        })
 
         if (res.ok) {
-            return res.arrayBuffer()
-        }
-
-        const errText = await res.text()
-        console.error(`HF ${model} attempt ${i + 1}:`, res.status, errText)
-
-        // If model is loading, wait and retry
-        if (res.status === 503 && i < retries) {
-            await new Promise(r => setTimeout(r, 5000))
+            const contentType = res.headers.get('content-type') || ''
+            if (contentType.includes('image') || contentType.includes('octet')) {
+                return res.arrayBuffer()
+            }
+            // If not image, might be JSON error
+            const text = await res.text()
+            console.error(`[enhance] Got non-image response:`, text.slice(0, 200))
+            lastError = text.slice(0, 200)
             continue
         }
 
-        if (res.status === 503) {
-            throw new Error('MODEL_LOADING')
-        }
+        const errText = await res.text().catch(() => '')
+        console.error(`[enhance] ${url} failed:`, res.status, errText.slice(0, 200))
+        lastError = `${res.status}: ${errText.slice(0, 200)}`
 
-        throw new Error(`HuggingFace error ${res.status}: ${errText.slice(0, 200)}`)
+        // 410 Gone = endpoint deprecated, try next URL
+        if (res.status === 410) continue
+        // 503 = model loading
+        if (res.status === 503) {
+            throw new Error('Model AI sedang loading. Coba lagi dalam 30 detik.')
+        }
     }
 
-    throw new Error('Max retries exceeded')
+    throw new Error(`Semua endpoint gagal. ${lastError}`)
 }
 
-// POST: Enhance product photo using Hugging Face
 export async function POST(request: Request) {
     const supabase = await createSupabaseServerClient()
     const { data: { user } } = await supabase.auth.getUser()
@@ -52,38 +64,28 @@ export async function POST(request: Request) {
     }
 
     let body
-    try {
-        body = await request.json()
-    } catch {
+    try { body = await request.json() } catch {
         return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
     const { image_base64, action } = body
-
     if (!image_base64) {
         return NextResponse.json({ error: 'image_base64 is required' }, { status: 400 })
     }
 
     const imageBuffer = Buffer.from(image_base64, 'base64')
-    console.log(`[enhance] action=${action}, imageSize=${imageBuffer.length} bytes`)
+    console.log(`[enhance] action=${action}, size=${(imageBuffer.length / 1024).toFixed(0)}KB`)
 
     try {
-        if (action === 'remove_bg') {
-            const resultBuffer = await callHuggingFace('briaai/RMBG-1.4', imageBuffer, hfToken)
+        if (action === 'remove_bg' || action === 'enhance') {
+            const resultBuffer = await callHF(HF_MODELS.remove_bg, imageBuffer, hfToken)
             const resultBase64 = Buffer.from(resultBuffer).toString('base64')
             return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
         }
 
         if (action === 'upscale') {
-            const resultBuffer = await callHuggingFace('caidas/swin2SR-classical-sr-x2-64', imageBuffer, hfToken)
+            const resultBuffer = await callHF(HF_MODELS.upscale, imageBuffer, hfToken)
             const resultBase64 = Buffer.from(resultBuffer).toString('base64')
-            return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
-        }
-
-        if (action === 'enhance') {
-            // Remove background
-            const noBgBuffer = await callHuggingFace('briaai/RMBG-1.4', imageBuffer, hfToken)
-            const resultBase64 = Buffer.from(noBgBuffer).toString('base64')
             return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
         }
 
@@ -91,11 +93,6 @@ export async function POST(request: Request) {
     } catch (err) {
         const msg = err instanceof Error ? err.message : 'Unknown error'
         console.error('[enhance] Error:', msg)
-
-        if (msg === 'MODEL_LOADING') {
-            return NextResponse.json({ error: 'Model AI sedang loading. Coba lagi dalam 30 detik.' }, { status: 503 })
-        }
-
-        return NextResponse.json({ error: `Gagal enhance foto: ${msg}` }, { status: 500 })
+        return NextResponse.json({ error: msg }, { status: 500 })
     }
 }

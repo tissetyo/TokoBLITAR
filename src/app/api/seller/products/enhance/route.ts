@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { GoogleGenerativeAI } from '@google/generative-ai'
+import { GoogleGenAI } from '@google/genai'
 
 // Flow:
 // 1. Send uploaded raw photo to Gemini Vision to get a detailed description prompt
@@ -31,8 +31,7 @@ export async function POST(request: Request) {
     try {
         // --- STEP 1: Use Gemini Vision to describe the product ---
         console.log(`[enhance] Step 1: Requesting Gemini Vision analysis...`)
-        const genAI = new GoogleGenerativeAI(geminiKey)
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash-latest' })
+        const ai = new GoogleGenAI({ apiKey: geminiKey })
 
         // Extract raw base64 data (remove data:image/png;base64, prefix if present)
         const base64Data = image_base64.includes(',') ? image_base64.split(',')[1] : image_base64
@@ -52,8 +51,12 @@ Do NOT include any introductory or concluding text. English language only.`
             }
         }
 
-        const visionResult = await model.generateContent([visionPrompt, imagePart])
-        let productDescription = visionResult.response.text().trim()
+        const visionResult = await ai.models.generateContent({
+            model: 'gemini-2.0-flash',
+            contents: [visionPrompt, imagePart]
+        })
+
+        let productDescription = visionResult.text?.trim() || ''
 
         // Sanitize the description
         productDescription = productDescription.replace(/^Here is.*:/i, '').replace(/\n/g, ' ').trim()

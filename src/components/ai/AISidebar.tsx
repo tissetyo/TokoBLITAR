@@ -29,10 +29,11 @@ export function AISidebar() {
     const textareaRef = useRef<HTMLTextAreaElement>(null)
 
     const MODELS = [
-        { id: 'gemini-2.0-flash-lite', label: 'Flash Lite', desc: 'Tercepat & gratis' },
-        { id: 'gemini-2.0-flash', label: 'Flash', desc: 'Cepat & akurat' },
-        { id: 'gemini-2.5-flash-preview-05-20', label: '2.5 Flash', desc: 'Terbaru' },
-        { id: 'gemini-2.5-pro-preview-05-06', label: '2.5 Pro', desc: 'Terpintar' },
+        { id: 'llama-3.3-70b', label: '🦙 Llama 3.3 70B', desc: 'Gratis & pintar' },
+        { id: 'gemma2-9b', label: '💎 Gemma 2 9B', desc: 'Tercepat' },
+        { id: 'llama-3.1-8b', label: '🦙 Llama 3.1 8B', desc: 'Super cepat' },
+        { id: 'gemini-2.0-flash-lite', label: '✨ Gemini Lite', desc: 'Google AI' },
+        { id: 'gemini-2.0-flash', label: '✨ Gemini Flash', desc: 'Google AI+' },
     ]
 
     // Auto-scroll to bottom

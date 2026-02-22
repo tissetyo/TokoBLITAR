@@ -29,7 +29,7 @@ export const useAIStore = create<AIStore>()(
             messages: [],
             isOpen: true,
             isStreaming: false,
-            model: 'gemini-2.0-flash-lite',
+            model: 'llama-3.3-70b',
             addMessage: (msg) => {
                 const id = crypto.randomUUID()
                 set((s) => ({ messages: [...s.messages, { ...msg, id }] }))

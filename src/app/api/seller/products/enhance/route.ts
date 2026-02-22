@@ -134,7 +134,7 @@ English language only. No intro, no outro.`
                 body: JSON.stringify({
                     prompt: sdPrompt,
                     negative_prompt: sdNegative,
-                    num_steps: 25,
+                    num_steps: 20,
                     guidance: 7.5,
                     width: 1024,
                     height: 1024,

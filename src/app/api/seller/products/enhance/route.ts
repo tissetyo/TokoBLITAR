@@ -1,111 +1,22 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 
-// Upload file to a Gradio Space, then call predict
-async function callGradioSpace(
-    spaceUrl: string,
-    imageBuffer: Buffer,
-    hfToken?: string,
-): Promise<string> {
-    const headers: Record<string, string> = {}
-    if (hfToken) headers['Authorization'] = `Bearer ${hfToken}`
-
-    // Step 1: Upload the image file to the Space
-    const formData = new FormData()
-    const blob = new Blob([new Uint8Array(imageBuffer)], { type: 'image/jpeg' })
-    formData.append('files', blob, 'image.jpg')
-
-    console.log(`[gradio] Uploading to ${spaceUrl}/upload ...`)
-    const uploadRes = await fetch(`${spaceUrl}/upload`, {
-        method: 'POST',
-        headers,
-        body: formData,
-    })
-
-    if (!uploadRes.ok) {
-        const errText = await uploadRes.text()
-        console.error('[gradio] Upload failed:', uploadRes.status, errText.slice(0, 300))
-        throw new Error(`Upload failed: ${uploadRes.status}`)
-    }
-
-    const uploadPaths = await uploadRes.json()
-    // Returns array of file paths like ["/tmp/gradio/xxx/image.jpg"]
-    const filePath = Array.isArray(uploadPaths) ? uploadPaths[0] : uploadPaths
-    console.log('[gradio] Uploaded file path:', filePath)
-
-    // Step 2: Queue the prediction
-    console.log(`[gradio] Calling predict...`)
-    const queueRes = await fetch(`${spaceUrl}/call/predict`, {
-        method: 'POST',
-        headers: { ...headers, 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-            data: [{ path: filePath, meta: { _type: 'gradio.FileData' } }],
-        }),
-    })
-
-    if (!queueRes.ok) {
-        const errText = await queueRes.text()
-        console.error('[gradio] Queue failed:', queueRes.status, errText.slice(0, 500))
-        throw new Error(`Predict failed: ${queueRes.status} - ${errText.slice(0, 200)}`)
-    }
-
-    const { event_id } = await queueRes.json()
-    if (!event_id) throw new Error('No event_id returned')
-    console.log('[gradio] Event ID:', event_id)
-
-    // Step 3: Poll for result (SSE stream)
-    const resultRes = await fetch(`${spaceUrl}/call/predict/${event_id}`, { headers })
-    if (!resultRes.ok) {
-        throw new Error(`Result polling failed: ${resultRes.status}`)
-    }
-
-    const sseText = await resultRes.text()
-    console.log('[gradio] SSE response length:', sseText.length)
-
-    // Parse SSE: look for "data: [...]\n" line after "event: complete"
-    const lines = sseText.split('\n')
-    for (let i = 0; i < lines.length; i++) {
-        if (lines[i].startsWith('data: ')) {
-            const dataStr = lines[i].slice(6)
-            try {
-                const parsed = JSON.parse(dataStr)
-                // Result format: [{ path: "...", url: "...", ... }]
-                if (Array.isArray(parsed) && parsed.length > 0) {
-                    const item = parsed[0]
-                    // Gradio returns a file object with url
-                    if (item && item.url) {
-                        // Download the result image
-                        const imgRes = await fetch(item.url, { headers })
-                        if (imgRes.ok) {
-                            const buf = await imgRes.arrayBuffer()
-                            return `data:image/png;base64,${Buffer.from(buf).toString('base64')}`
-                        }
-                    }
-                    if (item && item.path) {
-                        // Try fetching from the space's file endpoint
-                        const fileUrl = `${spaceUrl}/file=${item.path}`
-                        const imgRes = await fetch(fileUrl, { headers })
-                        if (imgRes.ok) {
-                            const buf = await imgRes.arrayBuffer()
-                            return `data:image/png;base64,${Buffer.from(buf).toString('base64')}`
-                        }
-                    }
-                }
-            } catch {
-                // skip non-JSON lines
-            }
-        }
-    }
-
-    throw new Error('No image found in Space response')
-}
-
+// Flow:
+// 1. Send uploaded raw photo to Gemini Vision to get a detailed description prompt
+// 2. Send that description to Cloudflare SDXL to generate a professional photo
 export async function POST(request: Request) {
     const supabase = await createSupabaseServerClient()
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    const hfToken = process.env.HF_API_TOKEN || undefined
+    // Check API Keys
+    const geminiKey = process.env.GEMINI_API_KEY
+    if (!geminiKey) return NextResponse.json({ error: 'GEMINI_API_KEY belum di-set' }, { status: 503 })
+
+    const cfAccountId = process.env.CLOUDFLARE_ACCOUNT_ID
+    const cfToken = process.env.CLOUDFLARE_AI_TOKEN
+    if (!cfAccountId || !cfToken) return NextResponse.json({ error: 'Cloudflare AI config belum di-set' }, { status: 503 })
 
     let body
     try { body = await request.json() } catch {
@@ -117,25 +28,90 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'image_base64 is required' }, { status: 400 })
     }
 
-    const imageBuffer = Buffer.from(image_base64, 'base64')
-    console.log(`[enhance] action=${action}, size=${(imageBuffer.length / 1024).toFixed(0)}KB`)
-
     try {
-        let spaceUrl = ''
+        // --- STEP 1: Use Gemini Vision to describe the product ---
+        console.log(`[enhance] Step 1: Requesting Gemini Vision analysis...`)
+        const genAI = new GoogleGenerativeAI(geminiKey)
+        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
 
-        if (action === 'remove_bg' || action === 'enhance') {
-            spaceUrl = 'https://briaai-bria-rmbg-2-0.hf.space'
-        } else if (action === 'upscale') {
-            spaceUrl = 'https://bookbot-image-upscaling-playground.hf.space'
-        } else {
-            return NextResponse.json({ error: `Action "${action}" tidak dikenali` }, { status: 400 })
+        // Extract raw base64 data (remove data:image/png;base64, prefix if present)
+        const base64Data = image_base64.includes(',') ? image_base64.split(',')[1] : image_base64
+
+        const visionPrompt = `Analyze this product photo. Describe the main product exactly as it looks in extreme detail:
+- Shape, form, and material
+- Primary and secondary colors
+- Any prominent text, labels, or branding details visible
+- Unique defining physical features
+Write the response as a continuous string of comma-separated keywords and short phrases, perfect for an AI image generator prompt to recreate this exact item.
+Do NOT include any introductory or concluding text. English language only.`
+
+        const imagePart = {
+            inlineData: {
+                data: base64Data,
+                mimeType: 'image/jpeg'
+            }
         }
 
-        const result = await callGradioSpace(spaceUrl, imageBuffer, hfToken)
-        return NextResponse.json({ result })
+        const visionResult = await model.generateContent([visionPrompt, imagePart])
+        let productDescription = visionResult.response.text().trim()
+
+        // Sanitize the description
+        productDescription = productDescription.replace(/^Here is.*:/i, '').replace(/\n/g, ' ').trim()
+        console.log(`[enhance] Gemini description: ${productDescription.slice(0, 100)}...`)
+
+        if (!productDescription) {
+            throw new Error('Gemini failed to generate description')
+        }
+
+        // --- STEP 2: Use Cloudflare SDXL to generate the enhanced photo ---
+        console.log(`[enhance] Step 2: Generating photo via Cloudflare... action=${action}`)
+        let sdPrompt = ''
+        let sdNegative = 'blurry, low quality, dark, noisy, watermark, ugly, distorted, collage, multiple items, human hands, fingers, bad anatomy, bad lighting, text, text overlay, signature'
+
+        if (action === 'remove_bg' || action === 'enhance') {
+            sdPrompt = `professional commercial product photography of [${productDescription}], perfectly centered, isolated on pure white background, soft studio lighting, sharp focus, 8k resolution, high-end product display, clean minimalist look`
+        } else if (action === 'upscale') {
+            sdPrompt = `hyper-realistic extreme macro close-up of [${productDescription}], incredible texture, 8k resolution, highly detailed, dramatic lighting, sharp focus, premium quality`
+            sdNegative += ', zoomed out, tiny'
+        } else if (action === 'lifestyle' || action === 'background') {
+            sdPrompt = `beautiful lifestyle product photography of [${productDescription}], placed naturally in a stunning aesthetic environment, warm natural lighting, shallow depth of field (bokeh), instagram worthy, professional styling, highly detailed`
+        } else {
+            sdPrompt = `professional photo of [${productDescription}], high quality, 8k`
+        }
+
+        const cfRes = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${cfAccountId}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${cfToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    prompt: sdPrompt,
+                    negative_prompt: sdNegative,
+                    num_steps: 25,
+                    guidance: 7.5,
+                    width: 1024,
+                    height: 1024,
+                }),
+            },
+        )
+
+        if (!cfRes.ok) {
+            const err = await cfRes.json().catch(() => ({}))
+            console.error('[enhance] Cloudflare error:', JSON.stringify(err).slice(0, 300))
+            throw new Error(err?.errors?.[0]?.message || 'Gagal generate SDXL')
+        }
+
+        const cfBuffer = await cfRes.arrayBuffer()
+        const resultBase64 = Buffer.from(cfBuffer).toString('base64')
+
+        return NextResponse.json({ result: `data:image/png;base64,${resultBase64}` })
+
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)
         console.error('[enhance] Error:', msg)
-        return NextResponse.json({ error: `Gagal enhance: ${msg}` }, { status: 500 })
+        return NextResponse.json({ error: `Gagal memproses gambar: ${msg}` }, { status: 500 })
     }
 }

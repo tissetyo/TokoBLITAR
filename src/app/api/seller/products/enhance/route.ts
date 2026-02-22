@@ -23,20 +23,24 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
-    const { image_base64, action } = body
+    const { image_base64, action, product_name, product_description } = body
     if (!image_base64) {
         return NextResponse.json({ error: 'image_base64 is required' }, { status: 400 })
     }
 
     try {
-        // --- STEP 1: Use Gemini Vision to describe the product ---
-        console.log(`[enhance] Step 1: Requesting Gemini Vision analysis...`)
-        const ai = new GoogleGenAI({ apiKey: geminiKey })
+        let sdPrompt = ''
+        let productDescriptionText = ''
 
-        // Extract raw base64 data (remove data:image/png;base64, prefix if present)
-        const base64Data = image_base64.includes(',') ? image_base64.split(',')[1] : image_base64
+        // --- STEP 1: Get product physical description ---
+        try {
+            console.log(`[enhance] Step 1: Requesting Gemini Vision analysis...`)
+            const ai = new GoogleGenAI({ apiKey: geminiKey })
 
-        const visionPrompt = `Analyze this product photo. Describe the main product exactly as it looks in extreme detail:
+            // Extract raw base64 data
+            const base64Data = image_base64.includes(',') ? image_base64.split(',')[1] : image_base64
+
+            const visionPrompt = `Analyze this product photo. Describe the main product exactly as it looks in extreme detail:
 - Shape, form, and material
 - Primary and secondary colors
 - Any prominent text, labels, or branding details visible
@@ -44,42 +48,66 @@ export async function POST(request: Request) {
 Write the response as a continuous string of comma-separated keywords and short phrases, perfect for an AI image generator prompt to recreate this exact item.
 Do NOT include any introductory or concluding text. English language only.`
 
-        const imagePart = {
-            inlineData: {
-                data: base64Data,
-                mimeType: 'image/jpeg'
+            const imagePart = {
+                inlineData: { data: base64Data, mimeType: 'image/jpeg' }
             }
-        }
 
-        const visionResult = await ai.models.generateContent({
-            model: 'gemini-2.0-flash',
-            contents: [visionPrompt, imagePart]
-        })
+            const visionResult = await ai.models.generateContent({
+                model: 'gemini-2.0-flash',
+                contents: [visionPrompt, imagePart]
+            })
 
-        let productDescription = visionResult.text?.trim() || ''
+            productDescriptionText = visionResult.text?.trim() || ''
+            productDescriptionText = productDescriptionText.replace(/^Here is.*:/i, '').replace(/\n/g, ' ').trim()
+            console.log(`[enhance] Gemini description: ${productDescriptionText.slice(0, 100)}...`)
+        } catch (geminiErr) {
+            console.warn('[enhance] Gemini failed/rate-limited. Falling back to Groq text description.', geminiErr)
 
-        // Sanitize the description
-        productDescription = productDescription.replace(/^Here is.*:/i, '').replace(/\n/g, ' ').trim()
-        console.log(`[enhance] Gemini description: ${productDescription.slice(0, 100)}...`)
+            // Fallback: If Gemini fails (e.g. rate limit), use Groq with the product name as fallback
+            const groqKey = process.env.GROQ_API_KEY
+            if (groqKey && product_name) {
+                const groqPrompt = `Write a highly detailed physical description of a product named "${product_name}" (Description: ${product_description || 'None'}).
+Describe its standard likely appearance, shape, colors, and materials.
+Write the response as a continuous string of comma-separated keywords and short phrases, perfect for an AI image generator prompt.
+English language only. No intro, no outro.`
 
-        if (!productDescription) {
-            throw new Error('Gemini failed to generate description')
+                const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
+                    method: 'POST',
+                    headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        model: 'llama-3.3-70b-versatile',
+                        messages: [{ role: 'user', content: groqPrompt }],
+                        max_tokens: 200,
+                    }),
+                })
+
+                if (res.ok) {
+                    const data = await res.json()
+                    productDescriptionText = data.choices[0].message.content.trim()
+                    console.log(`[enhance] Groq fallback description: ${productDescriptionText.slice(0, 100)}...`)
+                }
+            }
+
+            // Ultimate fallback if both AI APIs fail
+            if (!productDescriptionText) {
+                productDescriptionText = product_name || 'commercial product'
+                console.log(`[enhance] Ultimate fallback to product name: ${productDescriptionText}`)
+            }
         }
 
         // --- STEP 2: Use Cloudflare SDXL to generate the enhanced photo ---
         console.log(`[enhance] Step 2: Generating photo via Cloudflare... action=${action}`)
-        let sdPrompt = ''
         let sdNegative = 'blurry, low quality, dark, noisy, watermark, ugly, distorted, collage, multiple items, human hands, fingers, bad anatomy, bad lighting, text, text overlay, signature'
 
         if (action === 'remove_bg' || action === 'enhance') {
-            sdPrompt = `professional commercial product photography of [${productDescription}], perfectly centered, isolated on pure white background, soft studio lighting, sharp focus, 8k resolution, high-end product display, clean minimalist look`
+            sdPrompt = `professional commercial product photography of [${productDescriptionText}], perfectly centered, isolated on pure white background, soft studio lighting, sharp focus, 8k resolution, high-end product display, clean minimalist look`
         } else if (action === 'upscale') {
-            sdPrompt = `hyper-realistic extreme macro close-up of [${productDescription}], incredible texture, 8k resolution, highly detailed, dramatic lighting, sharp focus, premium quality`
+            sdPrompt = `hyper-realistic extreme macro close-up of [${productDescriptionText}], incredible texture, 8k resolution, highly detailed, dramatic lighting, sharp focus, premium quality`
             sdNegative += ', zoomed out, tiny'
         } else if (action === 'lifestyle' || action === 'background') {
-            sdPrompt = `beautiful lifestyle product photography of [${productDescription}], placed naturally in a stunning aesthetic environment, warm natural lighting, shallow depth of field (bokeh), instagram worthy, professional styling, highly detailed`
+            sdPrompt = `beautiful lifestyle product photography of [${productDescriptionText}], placed naturally in a stunning aesthetic environment, warm natural lighting, shallow depth of field (bokeh), instagram worthy, professional styling, highly detailed`
         } else {
-            sdPrompt = `professional photo of [${productDescription}], high quality, 8k`
+            sdPrompt = `professional photo of [${productDescriptionText}], high quality, 8k`
         }
 
         const cfRes = await fetch(

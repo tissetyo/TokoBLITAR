@@ -129,18 +129,49 @@ export default function ShippingPage() {
               </form>
 
               {rates.length > 0 && (
-                <div className="mt-6 space-y-3">
-                  <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Hasil Pengecekan</h4>
-                  <div className="max-h-[300px] overflow-y-auto space-y-2 pr-1">
-                    {rates.map((rate, i) => (
-                      <div key={i} className="flex justify-between items-center bg-gray-50 p-3 rounded-lg border text-sm">
-                        <div>
-                          <p className="font-medium">{rate.courier_name}</p>
-                          <p className="text-xs text-gray-500">{rate.courier_service_name} • {rate.duration}</p>
+                <div className="mt-6 space-y-3 animate-in fade-in slide-in-from-bottom-2">
+                  <div className="flex items-center justify-between pb-2 border-b">
+                    <h4 className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Hasil Pengecekan</h4>
+                    <span className="text-xs bg-blue-100 text-blue-700 px-2.5 py-1 rounded-full font-medium">{rates.length} Opsi</span>
+                  </div>
+                  <div className="max-h-[400px] overflow-y-auto space-y-3 pr-2 scrollbar-thin scrollbar-thumb-gray-200 scrollbar-track-transparent">
+                    {rates.map((rate, i) => {
+                      const getCourierTheme = (name: string) => {
+                        const n = name.toLowerCase()
+                        if (n.includes('jne')) return 'bg-[#002561] text-white border-[#002561]'
+                        if (n.includes('j&t') || n.includes('jnt')) return 'bg-[#e3000f] text-white border-[#e3000f]'
+                        if (n.includes('sicepat')) return 'bg-[#df0000] text-white border-[#df0000]'
+                        if (n.includes('anteraja')) return 'bg-[#f43596] text-white border-[#f43596]'
+                        if (n.includes('pos')) return 'bg-[#ea5b23] text-white border-[#ea5b23]'
+                        if (n.includes('tiki')) return 'bg-[#00923f] text-white border-[#00923f]'
+                        if (n.includes('ninja')) return 'bg-[#c51c24] text-white border-[#c51c24]'
+                        if (n.includes('id express') || n.includes('idexpress')) return 'bg-[#ea1c2d] text-white border-[#ea1c2d]'
+                        if (n.includes('gojek') || n.includes('gosend')) return 'bg-[#00aa13] text-white border-[#00aa13]'
+                        if (n.includes('grab')) return 'bg-[#00b14f] text-white border-[#00b14f]'
+                        return 'bg-gray-800 text-white border-gray-800'
+                      }
+                      const badgeClass = getCourierTheme(rate.courier_name)
+
+                      return (
+                        <div key={i} className="group relative overflow-hidden bg-white p-4 rounded-xl border border-gray-200 shadow-sm hover:shadow-md hover:border-blue-200 transition-all">
+                          <div className="flex justify-between items-start mb-3">
+                            <span className={`inline-flex items-center px-2.5 py-0.5 rounded text-xs font-bold border ${badgeClass} shadow-sm`}>
+                              {rate.courier_name}
+                            </span>
+                            <p className="font-bold text-lg tracking-tight text-gray-900">{formatPrice(rate.price)}</p>
+                          </div>
+                          <div className="flex justify-between items-end">
+                            <div>
+                              <p className="font-medium text-gray-700 text-sm leading-none">{rate.courier_service_name}</p>
+                              <div className="flex items-center gap-1.5 mt-2.5 text-xs text-gray-500">
+                                <Truck className="h-3.5 w-3.5" />
+                                <span>Estimasi tiba: <span className="font-medium text-gray-700">{rate.duration}</span></span>
+                              </div>
+                            </div>
+                          </div>
                         </div>
-                        <p className="font-bold text-blue-600">{formatPrice(rate.price)}</p>
-                      </div>
-                    ))}
+                      )
+                    })}
                   </div>
                 </div>
               )}

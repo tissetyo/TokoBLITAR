@@ -26,19 +26,60 @@ export async function POST(request: Request) {
     try {
         console.log(`[enhance] Starting enhancement. Action: ${action}`)
 
-        // Only support background removal for now, as generative upscale alters the product too much
-        if (action !== 'remove_bg' && action !== 'enhance') {
-            return NextResponse.json({ error: 'Fitur upscale sedang dalam perbaikan. Gunakan Hapus BG / Full Enhance.' }, { status: 400 })
-        }
-
-        const hfKey = process.env.HUGGINGFACE_API_KEY
-        if (!hfKey) {
-            return NextResponse.json({ error: 'HUGGINGFACE_API_KEY belum dikonfigurasi di server' }, { status: 500 })
+        // Only support these actions
+        if (!['remove_bg', 'enhance', 'studio_background'].includes(action)) {
+            return NextResponse.json({ error: 'Aksi tidak didukung. Gunakan Hapus BG, Full Enhance, atau Studio Background.' }, { status: 400 })
         }
 
         // Clean base64 string
         const base64Data = image_base64.includes(',') ? image_base64.split(',')[1] : image_base64
         const imageBuffer = Buffer.from(base64Data, 'base64')
+
+        if (action === 'studio_background') {
+            const geminiKey = process.env.GEMINI_API_KEY
+            if (!geminiKey) return NextResponse.json({ error: 'GEMINI_API_KEY belum dikonfigurasi' }, { status: 503 })
+
+            console.log(`[enhance] Calling Gemini 2.0 Flash for Studio Background...`)
+            const ai = new GoogleGenAI({ apiKey: geminiKey })
+
+            // The exact prompt to turn a raw photo into a professional 3D studio shot
+            const prompt = `Ini adalah foto produk mentah (raw product photo). 
+Tugasmu adalah MENGGANTI LATAR BELAKANG (background) menjadi estetik dan profesional, SEPERTI FOTO STUDIO MAHAL. 
+Namun, KAMU HARUS MEMPERTAHANKAN 100% BENTUK ASLI PRODUK INI (jangan ubah bentuk produk utamanya).
+Tambahkan pencahayaan studio (lighting), bayangan realistis (shadows), dan letakkan di atas meja kayu estetik atau permukaan premium yang cocok dengan barang tersebut. 
+Jadikan resolusi tinggi dan sangat realistis.`
+
+            const response = await ai.models.generateContent({
+                model: 'gemini-2.0-flash-exp', // The only model that supports image output currently
+                contents: [
+                    prompt,
+                    {
+                        inlineData: {
+                            data: base64Data,
+                            mimeType: 'image/jpeg'
+                        }
+                    }
+                ],
+                config: {
+                    responseModalities: ["IMAGE"], // Force the model to output an image instead of text
+                }
+            })
+
+            // The output is returned as inlineData base64
+            const generatedImageBase64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
+
+            if (!generatedImageBase64) {
+                throw new Error('Gemini tidak mengembalikan gambar.')
+            }
+
+            return NextResponse.json({ result: `data:image/jpeg;base64,${generatedImageBase64}` })
+        }
+
+        // --- HUGGINGFACE BACKGROUND REMOVAL ACTION ---
+        const hfKey = process.env.HUGGINGFACE_API_KEY
+        if (!hfKey) {
+            return NextResponse.json({ error: 'HUGGINGFACE_API_KEY belum dikonfigurasi di server' }, { status: 500 })
+        }
 
         // Fetch using Hugging Face Inference API directly
         console.log(`[enhance] Calling Hugging Face Inference API (briaai/RMBG-1.4)...`)

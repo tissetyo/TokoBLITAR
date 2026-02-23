@@ -100,7 +100,7 @@ export function ProductAITools({
         e.target.value = ''
     }
 
-    async function enhancePhoto(action: 'remove_bg' | 'upscale' | 'enhance') {
+    async function enhancePhoto(action: 'remove_bg' | 'upscale' | 'enhance' | 'studio_background') {
         if (!uploadedPhoto) return
         setLoading(`enhance_${action}`)
         try {
@@ -172,7 +172,7 @@ export function ProductAITools({
                                 )}
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2">
+                            <div className="grid grid-cols-2 gap-2 mb-2">
                                 <Button type="button" variant="outline" size="sm"
                                     className="h-auto flex-col gap-1 py-2 text-[10px] hover:bg-orange-50 hover:border-orange-200"
                                     onClick={() => enhancePhoto('remove_bg')} disabled={loading !== null}>
@@ -186,6 +186,13 @@ export function ProductAITools({
                                     Hapus BG & Shadow
                                 </Button>
                             </div>
+
+                            <Button type="button" variant="default" size="sm"
+                                className="w-full h-auto flex-col gap-1 py-2 text-[11px] bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 text-white"
+                                onClick={() => enhancePhoto('studio_background')} disabled={loading !== null}>
+                                {loading === 'enhance_studio_background' ? <Loader2 className="h-4 w-4 animate-spin" /> : <Sparkles className="h-4 w-4" />}
+                                Foto Studio ✨ (AI Generative)
+                            </Button>
 
                             <div className="flex gap-2 mt-3">
                                 {enhancedPhoto && (
@@ -206,8 +213,8 @@ export function ProductAITools({
 
 
                 <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 p-4">
-                    <p className="mb-2 text-xs font-semibold text-gray-700">🌟 Ingin Hasil Seperti Foto Studio (Ada Background Mewah)?</p>
-                    <p className="mb-3 text-[10px] text-gray-500">Karena keterbatasan server AI gratis, untuk membuat foto produk dengan background estetik seperti di atas karpet kayu, silakan gunakan AI Studio gratis pihak ketiga.</p>
+                    <p className="mb-2 text-xs font-semibold text-gray-700">🌟 Alternatif: AI Studio Eksternal</p>
+                    <p className="mb-3 text-[10px] text-gray-500">Jika hasil "Foto Studio ✨" di atas belum memuaskan, Anda masih bisa menggunakan AI Studio spesialis pihak ketiga secara gratis.</p>
                     <div className="flex gap-2">
                         <Button
                             type="button"
@@ -228,7 +235,6 @@ export function ProductAITools({
                             Buka Pebblely AI <ExternalLink className="ml-1.5 h-3 w-3" />
                         </Button>
                     </div>
-                    <p className="mt-2 text-center text-[9px] text-gray-400 italic">Edit foto di sana ➔ Download hasilnya ➔ Upload kembali ke TokoBLITAR</p>
                 </div>
 
                 <div className="border-t" />

@@ -180,7 +180,7 @@ export async function POST(request: Request) {
             console.log(`[enhance] Calling Cloudflare SDXL for Generation...`)
 
             const sdRes = await fetch(
-                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/bytedance/stable-diffusion-xl-lightning`,
+                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img`,
                 {
                     method: 'POST',
                     headers: {
@@ -189,11 +189,10 @@ export async function POST(request: Request) {
                     },
                     body: JSON.stringify({
                         prompt: finalImagePrompt,
-                        negative_prompt: 'blurry, low quality, dark, noisy, watermark, ugly, distorted, wrong text, bad branding, deformed',
+                        image: Array.from(new Uint8Array(imageBuffer!)),
+                        strength: 0.45, // Protect original pixels and geometry (0.45 retains structure, lets AI tweak details and background)
                         num_steps: 20,
-                        guidance: 7.5,
-                        width: 1024,
-                        height: 1024,
+                        guidance: 7.5
                     }),
                 },
             )

@@ -52,18 +52,18 @@ export async function POST(request: Request, { params }: Params) {
         }
 
         let base64Data: string = '';
-        if (action === 'analyze_image' || action === 'enhance') {
-            if (image_url) {
-                // 1. Fetch the actual image from the bucket to get base64
-                const imgRes = await fetch(image_url)
-                const arrayBuffer = await imgRes.arrayBuffer()
-                base64Data = Buffer.from(arrayBuffer).toString('base64')
-            } else if (imageBase64) {
-                // Strip the data:image prefix if present to get raw base64
-                base64Data = imageBase64.replace(/^data:image\/(png|jpeg|webp);base64,/, "")
-            }
+        // Always extract base64Data because img2img generation requires the base model image
+        if (image_url) {
+            // 1. Fetch the actual image from the bucket to get base64
+            const imgRes = await fetch(image_url)
+            const arrayBuffer = await imgRes.arrayBuffer()
+            base64Data = Buffer.from(arrayBuffer).toString('base64')
+        } else if (imageBase64) {
+            // Strip the data:image prefix if present to get raw base64
+            base64Data = imageBase64.replace(/^data:image\/(png|jpeg|webp);base64,/, "")
         }
 
+        const imageBuffer = Buffer.from(base64Data, 'base64')
         let generatedPrompt = ''
 
         if (action === 'analyze_image' || action === 'enhance') {
@@ -202,7 +202,7 @@ export async function POST(request: Request, { params }: Params) {
 
             // --- STEP 2: Image Generation via Cloudflare SDXL ---
             const cfRes = await fetch(
-                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/bytedance/stable-diffusion-xl-lightning`,
+                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img`,
                 {
                     method: 'POST',
                     headers: {
@@ -211,11 +211,10 @@ export async function POST(request: Request, { params }: Params) {
                     },
                     body: JSON.stringify({
                         prompt: finalImagePrompt,
-                        negative_prompt: 'blurry, low quality, dark, noisy, watermark, ugly, distorted, wrong text, bad branding',
+                        image: Array.from(new Uint8Array(imageBuffer)),
+                        strength: 0.45, // Protect original pixels and geometry
                         num_steps: 20,
-                        guidance: 7.5,
-                        width: 1024,
-                        height: 1024,
+                        guidance: 7.5
                     }),
                 },
             )

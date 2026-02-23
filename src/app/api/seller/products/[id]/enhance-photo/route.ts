@@ -56,7 +56,7 @@ export async function POST(request: Request, { params }: Params) {
         console.log(`[AI Pipeline] Calling Cloudflare Llama 3.2 Vision for Image Analysis...`)
 
         const llamaRes = await fetch(
-            `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+            `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/meta/llama-3.2-11b-vision-instruct`,
             {
                 method: 'POST',
                 headers: {
@@ -64,16 +64,14 @@ export async function POST(request: Request, { params }: Params) {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    model: '@cf/meta/llama-3.2-11b-vision-instruct',
                     messages: [
                         {
                             role: 'user',
-                            content: [
-                                { type: 'text', text: visionPrompt },
-                                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
-                            ]
+                            content: `[image] ${visionPrompt}`
                         }
                     ],
+                    // Convert base64 to flat array of integers as the non-openai compatible endpoint expects
+                    image: [...Array.from(Buffer.from(base64Data, 'base64'))],
                     max_tokens: 256
                 })
             }
@@ -85,9 +83,9 @@ export async function POST(request: Request, { params }: Params) {
             throw new Error("Cloudflare Llama failed to analyze image")
         }
 
-        const llamaData = await llamaRes.json()
+        const llamaData = await llamaRes.json().catch(() => ({}))
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        generatedPrompt = (llamaData as any).choices?.[0]?.message?.content?.trim()
+        generatedPrompt = (llamaData as any).result?.response?.trim()
 
         if (!generatedPrompt) throw new Error("Cloudflare Llama returned empty prompt")
 

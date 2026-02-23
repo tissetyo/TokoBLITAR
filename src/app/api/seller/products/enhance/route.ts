@@ -36,70 +36,40 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Fitur upscale sedang dalam perbaikan. Gunakan Hapus BG / Full Enhance.' }, { status: 400 })
         }
 
+        const hfKey = process.env.HUGGINGFACE_API_KEY
+        if (!hfKey) {
+            return NextResponse.json({ error: 'HUGGINGFACE_API_KEY belum dikonfigurasi di server' }, { status: 500 })
+        }
+
         // Clean base64 string
         const base64Data = image_base64.includes(',') ? image_base64.split(',')[1] : image_base64
         const imageBuffer = Buffer.from(base64Data, 'base64')
 
-        // Using BRIA RMBG-2.0 Space on HuggingFace (Free & excellent for products)
-        // We use the direct API approach with gradio_client pattern
-        const spaceUrl = 'https://briaai-bria-rmbg-2-0.hf.space'
+        // Fetch using Hugging Face Inference API directly
+        console.log(`[enhance] Calling Hugging Face Inference API (briaai/RMBG-1.4)...`)
+        const hfRes = await fetch(
+            "https://api-inference.huggingface.co/models/briaai/RMBG-1.4",
+            {
+                headers: {
+                    Authorization: `Bearer ${hfKey}`,
+                    "Content-Type": "application/json",
+                },
+                method: "POST",
+                body: imageBuffer,
+            }
+        );
 
-        console.log(`[enhance] Uploading to Space...`)
-        const formData = new FormData()
-        const blob = new Blob([new Uint8Array(imageBuffer)], { type: 'image/jpeg' })
-        formData.append('files', blob, 'image.jpg')
+        if (!hfRes.ok) {
+            const errText = await hfRes.text().catch(() => '')
+            console.error('[enhance] HF API failed:', hfRes.status, errText)
 
-        const uploadRes = await fetch(`${spaceUrl}/upload`, {
-            method: 'POST',
-            body: formData,
-        })
-
-        if (!uploadRes.ok) {
-            console.error('[enhance] Space upload failed:', uploadRes.status)
-            throw new Error('Gagal upload ke server AI')
+            if (hfRes.status === 503) {
+                return NextResponse.json({ error: 'Model AI sedang loading, silakan coba lagi dalam 10 detik.' }, { status: 503 })
+            }
+            throw new Error('Gagal memproses gambar. Server AI mungkin sedang sibuk.')
         }
 
-        // Usually returns ["/tmp/gradio/xxx/image.jpg"]
-        const uploadPaths = await uploadRes.json()
-        const filePath = Array.isArray(uploadPaths) ? uploadPaths[0] : uploadPaths
-        console.log(`[enhance] Uploaded path: ${filePath}`)
-
-        console.log(`[enhance] Calling predict...`)
-        const predictRes = await fetch(`${spaceUrl}/api/predict`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({
-                data: [{ path: filePath, meta: { _type: 'gradio.FileData' } }],
-                fn_index: 0
-            }),
-        })
-
-        if (!predictRes.ok) {
-            console.error('[enhance] Space predict failed:', predictRes.status)
-            throw new Error('Gagal memproses gambar di AI (server sibuk)')
-        }
-
-        const predictData = await predictRes.json()
-
-        // Predict data structure is usually: { data: [ { path: "...", url: "..." } ], is_generating: false }
-        console.log(`[enhance] Predict success!`)
-
-        let resultUrl = ''
-        if (predictData?.data?.[0]?.url) {
-            resultUrl = predictData.data[0].url
-        } else if (predictData?.data?.[0]?.path) {
-            resultUrl = `${spaceUrl}/file=${predictData.data[0].path}`
-        }
-
-        if (!resultUrl) {
-            throw new Error('URL hasil gambar tidak ditemukan')
-        }
-
-        // Fetch the transparent background transparent image
-        const imgRes = await fetch(resultUrl)
-        if (!imgRes.ok) throw new Error('Gagal mendownload hasil gambar')
-
-        const outBuffer = await imgRes.arrayBuffer()
+        const outBuffer = await hfRes.arrayBuffer()
         const outBase64 = Buffer.from(outBuffer).toString('base64')
 
         return NextResponse.json({ result: `data:image/png;base64,${outBase64}` })

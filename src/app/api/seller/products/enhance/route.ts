@@ -49,20 +49,13 @@ Namun, KAMU HARUS MEMPERTAHANKAN 100% BENTUK ASLI PRODUK INI (jangan ubah bentuk
 Tambahkan pencahayaan studio (lighting), bayangan realistis (shadows), dan letakkan di atas meja kayu estetik atau permukaan premium yang cocok dengan barang tersebut. 
 Jadikan resolusi tinggi dan sangat realistis.`
 
-            const response = await ai.models.generateContent({
-                model: 'gemini-2.0-flash-exp', // The only model that supports image output currently
-                contents: [
-                    prompt,
-                    {
-                        inlineData: {
-                            data: base64Data,
-                            mimeType: 'image/jpeg'
-                        }
-                    }
-                ],
-                config: {
-                    responseModalities: ["IMAGE"], // Force the model to output an image instead of text
-                }
+            const chat = ai.chats.create({ model: 'gemini-2.5-flash-image' })
+
+            const response = await chat.sendMessage({
+                message: [
+                    { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
+                    prompt
+                ]
             })
 
             // The output is returned as inlineData base64

@@ -1,6 +1,5 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { GoogleGenerativeAI } from '@google/generative-ai'
 
 // Flow:
 // 1. Send uploaded raw photo to Gemini Vision to get a detailed description prompt
@@ -35,22 +34,12 @@ export async function POST(request: Request) {
         if (action === 'studio_background') {
             const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
             const aiToken = process.env.CLOUDFLARE_AI_TOKEN
-            const geminiKey = process.env.GEMINI_API_KEY
 
-            if (!accountId || !aiToken || !geminiKey) {
-                return NextResponse.json({ error: 'Layanan AI belum dikonfigurasi sepenuhnya (Butuh Gemini & Cloudflare API Key)' }, { status: 503 })
+            if (!accountId || !aiToken) {
+                return NextResponse.json({ error: 'Layanan AI belum dikonfigurasi sepenuhnya (Butuh Cloudflare API Key)' }, { status: 503 })
             }
 
-            console.log(`[enhance] Calling Gemini 1.5 Flash for Image Analysis...`)
-            const genAI = new GoogleGenerativeAI(geminiKey)
-            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
-            
-            const imagePart = {
-                inlineData: {
-                    data: base64Data,
-                    mimeType: "image/jpeg"
-                }
-            }
+            console.log(`[enhance] Calling Cloudflare Llama 3.2 Vision for Image Analysis...`)
 
             const visionPrompt = `
             Analyze this product image carefully.
@@ -63,10 +52,41 @@ export async function POST(request: Request) {
             ${product_name ? `Product context name: ${product_name}` : ''}
             `
 
-            const result = await model.generateContent([visionPrompt, imagePart])
-            const generatedPrompt = result.response.text().trim()
-            
-            if(!generatedPrompt) throw new Error("Gemini gagal meracik prompt dari gambar")
+            const llamaRes = await fetch(
+                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${aiToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        model: '@cf/meta/llama-3.2-11b-vision-instruct',
+                        messages: [
+                            {
+                                role: 'user',
+                                content: [
+                                    { type: 'text', text: visionPrompt },
+                                    { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
+                                ]
+                            }
+                        ],
+                        max_tokens: 256
+                    })
+                }
+            )
+
+            if (!llamaRes.ok) {
+                const err = await llamaRes.json().catch(() => ({}))
+                console.error('Cloudflare Vision AI error:', err)
+                throw new Error("Cloudflare Llama gagal menganalisis gambar")
+            }
+
+            const llamaData = await llamaRes.json()
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            const generatedPrompt = (llamaData as any).choices?.[0]?.message?.content?.trim()
+
+            if (!generatedPrompt) throw new Error("Cloudflare Llama mengembalikan prompt kosong")
 
             console.log(`[enhance] Generated SDXL Prompt: ${generatedPrompt}`)
 

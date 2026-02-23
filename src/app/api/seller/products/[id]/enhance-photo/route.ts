@@ -37,10 +37,15 @@ export async function POST(request: Request, { params }: Params) {
 
     try {
         const body = await request.json()
-        const { image_url, action = 'enhance', promptText, customInstruction } = body
+        const { image_url, action = 'enhance', maskBase64, promptText, customInstruction } = body
 
         if (!image_url && !imageBase64) {
             return NextResponse.json({ error: 'Image URL or Base64 is required' }, { status: 400 })
+        }
+
+        // Only support these actions
+        if (!['remove_bg', 'enhance', 'generate_from_prompt', 'inpaint'].includes(action)) {
+            return NextResponse.json({ error: 'Aksi tidak didukung.' }, { status: 400 })
         }
 
         // Re-declare accountId and aiToken if they were not already defined, or ensure they are used from the outer scope
@@ -64,30 +69,45 @@ export async function POST(request: Request, { params }: Params) {
         }
 
         const imageBuffer = Buffer.from(base64Data, 'base64')
-        if (action === 'enhance' || action === 'generate_from_prompt') {
+        if (action === 'enhance' || action === 'generate_from_prompt' || action === 'inpaint') {
             const basePrompt = customInstruction || promptText || 'high quality, enhanced details, vibrant colors';
             const finalImagePrompt = `${basePrompt}. Highly detailed, photorealistic, 4k.`;
 
-            console.log(`[enhance] Generating image with prompt: ${finalImagePrompt}`)
+            console.log(`[enhance-photo] Generating image with prompt: ${finalImagePrompt} [Action: ${action}]`);
 
-            // --- STEP 2: Image Generation via Cloudflare SDXL ---
-            const cfRes = await fetch(
-                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${aiToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify({
-                        prompt: finalImagePrompt,
-                        image: Array.from(new Uint8Array(imageBuffer)),
-                        strength: 0.45, // Protect original pixels and geometry
-                        num_steps: 20,
-                        guidance: 7.5
-                    }),
+            let endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img`;
+            let reqBody: any = {
+                prompt: finalImagePrompt,
+                image: Array.from(new Uint8Array(imageBuffer)),
+                strength: 0.45,
+                num_steps: 20,
+                guidance: 7.5
+            };
+
+            if (action === 'inpaint') {
+                if (!maskBase64) {
+                    return NextResponse.json({ error: 'Mask is required for inpainting' }, { status: 400 })
+                }
+                endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/runwayml/stable-diffusion-v1-5-inpainting`;
+                const maskData = maskBase64.includes(',') ? maskBase64.split(',')[1] : maskBase64;
+                const maskBuffer = Buffer.from(maskData, 'base64');
+                reqBody = {
+                    prompt: finalImagePrompt,
+                    image: Array.from(new Uint8Array(imageBuffer)),
+                    mask: Array.from(new Uint8Array(maskBuffer)),
+                    num_steps: 20,
+                    guidance: 7.5
+                };
+            }
+
+            const cfRes = await fetch(endpoint, {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${aiToken}`,
+                    'Content-Type': 'application/json',
                 },
-            )
+                body: JSON.stringify(reqBody),
+            })
 
             if (!cfRes.ok) {
                 const err = await cfRes.json().catch(() => ({}))
@@ -105,6 +125,43 @@ export async function POST(request: Request, { params }: Params) {
                 prompt_used: finalImagePrompt,
                 status: 'succeeded',
             })
+        }
+
+        // --- HUGGINGFACE BACKGROUND REMOVAL ACTION ---
+        if (action === 'remove_bg') {
+            const hfKey = process.env.HUGGINGFACE_API_KEY
+            if (!hfKey) {
+                return NextResponse.json({ error: 'HUGGINGFACE_API_KEY belum dikonfigurasi di server' }, { status: 500 })
+            }
+
+            // Fetch using Hugging Face Inference API directly
+            console.log(`[enhance-photo] Calling Hugging Face Inference API (briaai/RMBG-1.4)...`)
+            const hfRes = await fetch(
+                "https://api-inference.huggingface.co/models/briaai/RMBG-1.4",
+                {
+                    headers: {
+                        Authorization: `Bearer ${hfKey}`,
+                        "Content-Type": "application/json",
+                    },
+                    method: "POST",
+                    body: imageBuffer,
+                }
+            );
+
+            if (!hfRes.ok) {
+                const errText = await hfRes.text().catch(() => '')
+                console.error('[enhance-photo] HF API failed:', hfRes.status, errText)
+
+                if (hfRes.status === 503) {
+                    return NextResponse.json({ error: 'Model AI sedang loading, silakan coba lagi dalam 10 detik.' }, { status: 503 })
+                }
+                throw new Error('Gagal memproses gambar. Server AI mungkin sedang sibuk.')
+            }
+
+            const outBuffer = await hfRes.arrayBuffer()
+            const outBase64 = Buffer.from(outBuffer).toString('base64')
+
+            return NextResponse.json({ result: `data:image/png;base64,${outBase64}` })
         }
 
     } catch (err: any) {

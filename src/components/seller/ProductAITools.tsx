@@ -101,15 +101,90 @@ export function ProductAITools({
         e.target.value = ''
     }
 
-    async function enhancePhoto(action: 'remove_bg' | 'upscale' | 'enhance' | 'studio_background' | 'generate_from_prompt') {
+    async function enhancePhoto(action: 'remove_bg' | 'upscale' | 'enhance' | 'studio_background' | 'inpaint') {
         if (!uploadedPhoto) return
         setLoading(`enhance_${action}`)
         try {
             const base64 = uploadedPhoto.split(',')[1]
-            const payload: any = { image_base64: base64, action }
-            if (action === 'generate_from_prompt') {
-                payload.promptText = userInstruction
+
+            if (action === 'inpaint') {
+                // Step 1: Remove Background to isolate the object
+                toast.info('Mensolasi produk (1/3)...')
+                const bgRes = await fetch('/api/seller/products/enhance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image_base64: base64, action: 'remove_bg' }),
+                })
+                const bgData = await bgRes.json()
+                if (!bgRes.ok) throw new Error(bgData.error || 'Gagal menghapus background')
+
+                // Step 2: Generate Mask from transparent image
+                toast.info('Membuat cetakan masking (2/3)...')
+                const transparentBase64 = bgData.result
+                const img = new Image()
+                img.src = transparentBase64
+                await new Promise(res => { img.onload = res })
+
+                const canvas = document.createElement('canvas')
+                canvas.width = img.width
+                canvas.height = img.height
+                const ctx = canvas.getContext('2d')!
+
+                // Draw the transparent image
+                ctx.drawImage(img, 0, 0)
+
+                // Create Black & White mask (Black = Preserve Object, White = Inpaint Background)
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
+                const data = imgData.data
+                for (let i = 0; i < data.length; i += 4) {
+                    if (data[i + 3] > 10) { // Opaque: This is the product -> BLACK
+                        data[i] = 0
+                        data[i + 1] = 0
+                        data[i + 2] = 0
+                        data[i + 3] = 255
+                    } else { // Transparent: This is the background -> WHITE
+                        data[i] = 255
+                        data[i + 1] = 255
+                        data[i + 2] = 255
+                        data[i + 3] = 255
+                    }
+                }
+                ctx.putImageData(imgData, 0, 0)
+                const maskBase64 = canvas.toDataURL('image/png')
+
+                // Step 3: Call Inpainting API
+                toast.info('Me-render latar AI (3/3)...')
+                const inpaintRes = await fetch('/api/seller/products/enhance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        image_base64: base64,
+                        mask_base64: maskBase64,
+                        action: 'inpaint',
+                        promptText: userInstruction
+                    }),
+                })
+                const inpaintData = await inpaintRes.json()
+                if (!inpaintRes.ok) throw new Error(inpaintData.error || 'Gagal membuat AI background')
+
+                // Final Step: Overlay the transparent product on top of the new AI background to ensure 100% pixel perfection
+                const finalBgImg = new Image()
+                finalBgImg.src = inpaintData.result
+                await new Promise(res => { finalBgImg.onload = res })
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height)
+                ctx.drawImage(finalBgImg, 0, 0, canvas.width, canvas.height) // AI Background
+                ctx.drawImage(img, 0, 0, canvas.width, canvas.height) // 100% Original Transparent Product
+
+                const perfectResult = canvas.toDataURL('image/png')
+                setEnhancedPhoto(perfectResult)
+                toast.success('Foto 100% Asli dengan Latar AI berhasil dibuat!')
+                setLoading(null)
+                return;
             }
+
+            const payload: any = { image_base64: base64, action }
+
 
             const res = await fetch('/api/seller/products/enhance', {
                 method: 'POST',
@@ -121,13 +196,8 @@ export function ProductAITools({
                 toast.error(data.error || 'Gagal enhance foto')
                 return
             }
-            if (action === 'generate_from_prompt') {
-                setEnhancedPhoto(data.result)
-                toast.success('Foto berhasil di-generate!')
-            } else {
-                setEnhancedPhoto(data.result)
-                toast.success(action === 'remove_bg' ? 'Background berhasil dihapus!' : 'Foto berhasil di-enhance!')
-            }
+            setEnhancedPhoto(data.result)
+            toast.success(action === 'remove_bg' ? 'Background berhasil dihapus!' : 'Foto berhasil di-enhance!')
         } catch { toast.error('Terjadi kesalahan') }
         finally { setLoading(null) }
     }
@@ -193,8 +263,8 @@ export function ProductAITools({
                                     <Button
                                         type="button"
                                         className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 transition-all text-white font-medium shadow-md hover:shadow-lg"
-                                        onClick={() => enhancePhoto('generate_from_prompt')} disabled={loading !== null || userInstruction.trim() === ''}>
-                                        {loading === 'enhance_generate_from_prompt' ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Wand2 className="h-4 w-4 text-white" />}
+                                        onClick={() => enhancePhoto('inpaint')} disabled={loading !== null || userInstruction.trim() === ''}>
+                                        {loading === 'enhance_inpaint' ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Wand2 className="h-4 w-4 text-white" />}
                                         <span className="font-bold">Generate AI Image 🚀</span>
                                     </Button>
                                     <Button variant="ghost" size="sm" onClick={() => {

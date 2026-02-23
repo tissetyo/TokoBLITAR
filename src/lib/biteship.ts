@@ -59,8 +59,11 @@ export async function getBiteshipRates(params: BiteshipRateRequest): Promise<Bit
     })
 
     if (!res.ok) {
-        const error = await res.json().catch(() => ({}))
-        throw new Error(error.message || `Biteship API error: ${res.status}`)
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        const error: any = await res.json().catch(() => ({}))
+        // Biteship uses 'error' field for error messages, not 'message'
+        const errorMessage = error.error || error.message || `Biteship API error: ${res.status}`
+        throw new Error(errorMessage)
     }
 
     const data: BiteshipRateResponse = await res.json()

@@ -14,6 +14,8 @@ export async function GET(request: NextRequest) {
     const url = request.nextUrl
     const originPostal = url.searchParams.get('origin_postal_code')
     const destPostal = url.searchParams.get('destination_postal_code')
+    const originAreaId = url.searchParams.get('origin_area_id')
+    const destAreaId = url.searchParams.get('destination_area_id')
     const weight = parseInt(url.searchParams.get('weight') || '1000')
     const couriers = url.searchParams.get('couriers') || 'jne,jnt,sicepat,anteraja,pos,tiki'
 
@@ -37,17 +39,19 @@ export async function GET(request: NextRequest) {
         }]
     }
 
-    if (!originPostal || !destPostal) {
+    if ((!originPostal && !originAreaId) || (!destPostal && !destAreaId)) {
         return NextResponse.json(
-            { error: 'Kodepos asal dan tujuan wajib diisi' },
+            { error: 'Kodepos atau ID Area asal dan tujuan wajib diisi' },
             { status: 400 },
         )
     }
 
     try {
         const rates = await getBiteshipRates({
-            origin_postal_code: originPostal,
-            destination_postal_code: destPostal,
+            origin_postal_code: originPostal || undefined,
+            destination_postal_code: destPostal || undefined,
+            origin_area_id: originAreaId || undefined,
+            destination_area_id: destAreaId || undefined,
             couriers,
             items,
         })

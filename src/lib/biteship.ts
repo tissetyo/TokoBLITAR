@@ -9,8 +9,10 @@ function getApiKey() {
 }
 
 interface BiteshipRateRequest {
-    origin_postal_code: string
-    destination_postal_code: string
+    origin_postal_code?: string
+    destination_postal_code?: string
+    origin_area_id?: string
+    destination_area_id?: string
     couriers: string  // comma-separated, e.g. 'jne,jnt,sicepat,anteraja,pos'
     items: {
         name: string
@@ -49,6 +51,8 @@ export async function getBiteshipRates(params: BiteshipRateRequest): Promise<Bit
         body: JSON.stringify({
             origin_postal_code: params.origin_postal_code,
             destination_postal_code: params.destination_postal_code,
+            origin_area_id: params.origin_area_id,
+            destination_area_id: params.destination_area_id,
             couriers: params.couriers,
             items: params.items,
         }),
@@ -77,6 +81,25 @@ export async function getBiteshipCouriers() {
     if (!res.ok) throw new Error('Failed to fetch couriers')
 
     return res.json()
+}
+
+export async function getBiteshipAreas(input: string) {
+    if (!input || input.length < 3) return []
+
+    const params = new URLSearchParams({
+        countries: 'ID',
+        input: input,
+        type: 'single'
+    })
+
+    const res = await fetch(`${BITESHIP_BASE_URL}/v1/maps/areas?${params}`, {
+        headers: { 'Authorization': getApiKey() },
+    })
+
+    if (!res.ok) throw new Error('Failed to fetch areas')
+
+    const data = await res.json()
+    return data.areas || []
 }
 
 export type { BiteshipCourier, BiteshipRateRequest }

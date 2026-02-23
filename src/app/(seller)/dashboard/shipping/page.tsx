@@ -11,6 +11,12 @@ import { Label } from '@/components/ui/label'
 import { Button } from '@/components/ui/button'
 import { toast } from 'sonner'
 import type { BiteshipCourier } from '@/lib/biteship'
+import { AreaSearch } from '@/components/ui/area-search'
+
+interface Area {
+  id: string
+  name: string
+}
 
 interface Shipment {
   id: string
@@ -27,22 +33,22 @@ export default function ShippingPage() {
   const [loading, setLoading] = useState(true)
 
   // Manual Check States
-  const [originPostal, setOriginPostal] = useState('66171')
-  const [destinationPostal, setDestinationPostal] = useState('')
+  const [originArea, setOriginArea] = useState<Area | null>({ id: 'IDNP4C111K1115D111511', name: 'Sananwetan, Blitar, Jawa Timur' })
+  const [destinationArea, setDestinationArea] = useState<Area | null>(null)
   const [weight, setWeight] = useState('1000') // in grams
   const [checkingRates, setCheckingRates] = useState(false)
   const [rates, setRates] = useState<BiteshipCourier[]>([])
 
   async function handleCheckRates(e: React.FormEvent) {
     e.preventDefault()
-    if (!originPostal || !destinationPostal || !weight) return
+    if (!originArea || !destinationArea || !weight) return toast.error('Lengkapi form cek ongkir')
 
     setCheckingRates(true)
     setRates([])
     try {
       const params = new URLSearchParams({
-        origin_postal_code: originPostal,
-        destination_postal_code: destinationPostal,
+        origin_area_id: originArea.id,
+        destination_area_id: destinationArea.id,
         weight: weight,
         couriers: 'jne,jnt,sicepat,anteraja,pos,tiki', // manual check checks all
         items: JSON.stringify([{ name: 'Paket Reguler', weight: parseInt(weight), quantity: 1, value: 50000 }])
@@ -94,24 +100,18 @@ export default function ShippingPage() {
             </CardHeader>
             <CardContent>
               <form onSubmit={handleCheckRates} className="space-y-4">
-                <div className="space-y-2">
-                  <Label>Kodepos Asal</Label>
-                  <Input
-                    value={originPostal}
-                    onChange={e => setOriginPostal(e.target.value)}
-                    placeholder="Contoh: 66171"
-                    required
-                  />
-                </div>
-                <div className="space-y-2">
-                  <Label>Kodepos Tujuan</Label>
-                  <Input
-                    value={destinationPostal}
-                    onChange={e => setDestinationPostal(e.target.value)}
-                    placeholder="Contoh: 12345"
-                    required
-                  />
-                </div>
+                <AreaSearch
+                  label="Area Asal"
+                  defaultValue={originArea}
+                  onSelect={setOriginArea}
+                  placeholder="Ketik kecamatan asal..."
+                />
+                <AreaSearch
+                  label="Area Tujuan"
+                  defaultValue={destinationArea}
+                  onSelect={setDestinationArea}
+                  placeholder="Ketik kecamatan tujuan..."
+                />
                 <div className="space-y-2">
                   <Label>Berat (Gram)</Label>
                   <Input

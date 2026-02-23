@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
+import { createSupabaseBrowserClient } from '@/lib/supabase/client'
 import { useCartStore } from '@/store/cartStore'
 import { Button } from '@/components/ui/button'
 import { Input } from '@/components/ui/input'
@@ -13,6 +14,12 @@ import { Skeleton } from '@/components/ui/skeleton'
 import { formatPrice } from '@/lib/utils'
 import { toast } from 'sonner'
 import { CreditCard, MapPin, Truck, Check } from 'lucide-react'
+import { AreaSearch } from '@/components/ui/area-search'
+
+interface Area {
+  id: string
+  name: string
+}
 
 interface ShippingRate {
   courier_code: string
@@ -32,14 +39,70 @@ export default function CheckoutPage() {
   const [shippingRates, setShippingRates] = useState<ShippingRate[]>([])
   const [loadingRates, setLoadingRates] = useState(false)
   const [selectedShipping, setSelectedShipping] = useState<ShippingRate | null>(null)
+  const [selectedArea, setSelectedArea] = useState<Area | null>(null)
   const [address, setAddress] = useState({
     name: '',
     phone: '',
     street: '',
-    city: 'Blitar',
-    province: 'Jawa Timur',
-    postal_code: '',
+    city: '',
+    province: '',
+    postal_code: '', // we will keep postal code for the final UI but area_id drives the API
+    area_id: '',
   })
+
+  // Fetch initial address from profile
+  useEffect(() => {
+    async function loadProfile() {
+      const supabase = createSupabaseBrowserClient()
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return
+
+      const { data: profile } = await supabase
+        .from('users')
+        .select('full_name, phone, street, city, province, postal_code, area_id')
+        .eq('id', user.id)
+        .returns<{
+          full_name: string | null
+          phone: string | null
+          street: string | null
+          city: string | null
+          province: string | null
+          postal_code: string | null
+          area_id: string | null
+        }[]>()
+        .single()
+
+      if (profile) {
+        setAddress(prev => ({
+          ...prev,
+          name: profile.full_name || prev.name,
+          phone: profile.phone || prev.phone,
+          street: profile.street || prev.street,
+          city: profile.city || prev.city,
+          province: profile.province || prev.province,
+          postal_code: profile.postal_code || prev.postal_code,
+          area_id: profile.area_id || prev.area_id,
+        }))
+
+        if (profile.area_id && profile.city) {
+          setSelectedArea({
+            id: profile.area_id,
+            name: `${profile.city}${profile.province ? `, ${profile.province}` : ''}`
+          })
+        }
+      }
+    }
+    loadProfile()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Whenever user selects an area, attempt to fetch rates automatically
+  useEffect(() => {
+    if (address.area_id) {
+      fetchShippingRates()
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [address.area_id])
 
   if (items.length === 0) {
     router.push('/cart')
@@ -53,16 +116,16 @@ export default function CheckoutPage() {
   )
 
   async function fetchShippingRates() {
-    if (!address.postal_code || address.postal_code.length < 5) return
+    if (!address.area_id) return
 
     setLoadingRates(true)
     setSelectedShipping(null)
     try {
       const params = new URLSearchParams({
-        destination_postal_code: address.postal_code,
+        destination_area_id: address.area_id,
         weight: totalWeight.toString(),
         value: total().toString(),
-        store_id: items[0].store_id, // Fetch shipping couriers specifically enabled for this store
+        store_id: items[0].store_id,
       })
       const res = await fetch(`/api/buyer/shipping?${params}`)
       const data = await res.json()
@@ -171,25 +234,47 @@ export default function CheckoutPage() {
                     onChange={(e) => setAddress({ ...address, street: e.target.value })}
                   />
                 </div>
-                <div className="grid gap-3 sm:grid-cols-3">
-                  <div className="space-y-1">
-                    <Label>Kota</Label>
-                    <Input value={address.city} onChange={(e) => setAddress({ ...address, city: e.target.value })} />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Provinsi</Label>
-                    <Input value={address.province} readOnly className="bg-gray-50" />
-                  </div>
-                  <div className="space-y-1">
-                    <Label>Kode Pos</Label>
-                    <Input
-                      value={address.postal_code}
-                      onChange={(e) => setAddress({ ...address, postal_code: e.target.value })}
-                      onBlur={fetchShippingRates}
-                      placeholder="Contoh: 12345"
-                    />
-                  </div>
+                <div className="space-y-1">
+                  <AreaSearch
+                    label="Wilayah Tujuan (Kecamatan / Kota)"
+                    placeholder="Contoh: Sananwetan, Blitar..."
+                    onSelect={(area) => {
+                      if (area) {
+                        setSelectedArea(area)
+                        // Simple parser for name, e.g "Sananwetan, Blitar, Jawa Timur"
+                        const parts = area.name.split(',').map(s => s.trim())
+                        const city = parts.length > 1 ? parts[1] : area.name
+                        const province = parts.length > 2 ? parts[2] : ''
+
+                        setAddress({
+                          ...address,
+                          area_id: area.id,
+                          city: city,
+                          province: province,
+                          // Optional: we don't have exact postal code from the area picker, but Biteship accepts area ID natively now.
+                        })
+                      } else {
+                        setSelectedArea(null)
+                        setAddress({ ...address, area_id: '', city: '', province: '' })
+                        setShippingRates([])
+                      }
+                    }}
+                    defaultValue={selectedArea}
+                  />
                 </div>
+
+                {selectedArea && (
+                  <div className="grid gap-3 sm:grid-cols-2 mt-4">
+                    <div className="space-y-1">
+                      <Label>Kota/Kabupaten</Label>
+                      <Input value={address.city} readOnly className="bg-gray-50" />
+                    </div>
+                    <div className="space-y-1">
+                      <Label>Provinsi</Label>
+                      <Input value={address.province} readOnly className="bg-gray-50" />
+                    </div>
+                  </div>
+                )}
               </CardContent>
             </Card>
 
@@ -201,9 +286,9 @@ export default function CheckoutPage() {
                 </CardTitle>
               </CardHeader>
               <CardContent>
-                {!address.postal_code ? (
+                {!address.area_id ? (
                   <p className="text-sm text-gray-500">
-                    Masukkan kode pos tujuan untuk melihat pilihan kurir.
+                    Pilih wilayah tujuan penerima untuk melihat pilihan kurir.
                   </p>
                 ) : loadingRates ? (
                   <div className="space-y-3">

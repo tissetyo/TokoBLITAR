@@ -1,12 +1,13 @@
 import { createSupabaseServerClient } from '@/lib/supabase/server'
 import { redirect } from 'next/navigation'
 import Link from 'next/link'
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from '@/components/ui/card'
 import { Badge } from '@/components/ui/badge'
 import { Button } from '@/components/ui/button'
 import { Separator } from '@/components/ui/separator'
 import { formatPrice, formatDate } from '@/lib/utils'
 import { User, Package, Crown } from 'lucide-react'
+import { ProfileForm } from '@/components/buyer/ProfileForm'
 
 export default async function ProfilePage() {
   const supabase = await createSupabaseServerClient()
@@ -48,22 +49,14 @@ export default async function ProfilePage() {
     <main className="min-h-screen bg-gray-50">
       <div className="mx-auto max-w-3xl px-4 py-8 sm:px-6">
         {/* User Info */}
+        {/* Profile Form (Editable) */}
         <Card className="mb-6">
-          <CardContent className="flex items-center gap-4 py-6">
-            <div
-              className="flex h-14 w-14 items-center justify-center rounded-full text-xl font-bold text-white"
-              style={{ backgroundColor: 'var(--color-tb-primary)' }}
-            >
-              {profile?.avatar_url ? (
-                <img src={profile.avatar_url} alt="" className="h-14 w-14 rounded-full object-cover" />
-              ) : (
-                <User className="h-6 w-6" />
-              )}
-            </div>
-            <div>
-              <h1 className="text-xl font-bold">{profile?.full_name || 'User'}</h1>
-              <p className="text-sm text-gray-500">{user.email}</p>
-            </div>
+          <CardHeader>
+            <CardTitle>Profil & Alamat Pengiriman</CardTitle>
+            <CardDescription>Perbarui data diri dan alamat utama Anda untuk mempermudah checkout.</CardDescription>
+          </CardHeader>
+          <CardContent>
+            <ProfileForm profile={profile} email={user.email || ''} />
           </CardContent>
         </Card>
 

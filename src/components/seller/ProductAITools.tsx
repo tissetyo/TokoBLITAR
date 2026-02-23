@@ -180,10 +180,10 @@ export function ProductAITools({
                                     Hapus BG
                                 </Button>
                                 <Button type="button" variant="outline" size="sm"
-                                    className="h-auto flex-col gap-1 py-2 text-[10px] hover:bg-violet-50 hover:border-violet-200"
-                                    onClick={() => enhancePhoto('enhance')} disabled={loading !== null}>
-                                    {loading === 'enhance_enhance' ? <Loader2 className="h-4 w-4 animate-spin text-violet-500" /> : <Wand2 className="h-4 w-4 text-violet-500" />}
-                                    Hapus BG & Shadow
+                                    className="h-auto flex-col gap-1 py-2 text-[10px] bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 hover:border-purple-300 border-purple-200"
+                                    onClick={() => enhancePhoto('studio_background')} disabled={loading !== null}>
+                                    {loading === 'enhance_studio_background' ? <Loader2 className="h-4 w-4 animate-spin text-purple-500" /> : <Wand2 className="h-4 w-4 text-purple-600" />}
+                                    <span className="font-medium text-purple-700">Magic Enhance✨</span>
                                 </Button>
                             </div>
 
@@ -205,29 +205,11 @@ export function ProductAITools({
 
 
 
-                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 p-4">
-                    <p className="mb-2 text-xs font-semibold text-gray-700">🌟 Ingin Hasil Seperti Foto Studio (Ada Background Mewah)?</p>
-                    <p className="mb-3 text-[10px] text-gray-500">Karena keterbatasan server AI gratis, untuk membuat foto produk dengan background estetik (seperti karpet kayu), silakan gunakan AI Studio spesialis pihak ketiga secara gratis.</p>
-                    <div className="flex gap-2">
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="flex-1 text-[11px] bg-white hover:bg-gray-100"
-                            onClick={() => window.open('https://www.photoroom.com/tools/background-generator', '_blank')}
-                        >
-                            Buka Photoroom AI <ExternalLink className="ml-1.5 h-3 w-3" />
-                        </Button>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="flex-1 text-[11px] bg-white hover:bg-gray-100"
-                            onClick={() => window.open('https://pebblely.com/', '_blank')}
-                        >
-                            Buka Pebblely AI <ExternalLink className="ml-1.5 h-3 w-3" />
-                        </Button>
-                    </div>
+                <div className="rounded-lg border border-purple-200 bg-purple-50/50 p-4">
+                    <p className="mb-2 text-xs font-semibold text-purple-800">🌟 Foto Studio Profesional Secara Gratis!</p>
+                    <p className="text-[10px] text-purple-600 leading-relaxed">
+                        Fitur <b>Magic Enhance✨</b> di atas menggunakan perpaduan Vision AI dan Image Generation. Sistem akan membaca bentuk barang jualan Anda, lalu secara otomatis membuatkan Latar Belakang Studio yang mewah dan sangat realistis tanpa biaya sama sekali.
+                    </p>
                 </div>
 
                 <div className="border-t" />

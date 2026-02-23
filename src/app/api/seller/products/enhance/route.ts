@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { GoogleGenAI } from '@google/genai'
+import { GoogleGenerativeAI } from '@google/generative-ai'
 
 // Flow:
 // 1. Send uploaded raw photo to Gemini Vision to get a detailed description prompt
@@ -10,15 +10,12 @@ export async function POST(request: Request) {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-    // Check API Keys
-
-
     let body
     try { body = await request.json() } catch {
         return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
-    const { image_base64, action, product_name, product_description } = body
+    const { image_base64, action, product_name } = body
     if (!image_base64) {
         return NextResponse.json({ error: 'image_base64 is required' }, { status: 400 })
     }
@@ -36,36 +33,73 @@ export async function POST(request: Request) {
         const imageBuffer = Buffer.from(base64Data, 'base64')
 
         if (action === 'studio_background') {
+            const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
+            const aiToken = process.env.CLOUDFLARE_AI_TOKEN
             const geminiKey = process.env.GEMINI_API_KEY
-            if (!geminiKey) return NextResponse.json({ error: 'GEMINI_API_KEY belum dikonfigurasi' }, { status: 503 })
 
-            console.log(`[enhance] Calling Gemini 2.0 Flash for Studio Background...`)
-            const ai = new GoogleGenAI({ apiKey: geminiKey })
-
-            // The exact prompt to turn a raw photo into a professional 3D studio shot
-            const prompt = `Ini adalah foto produk mentah (raw product photo). 
-Tugasmu adalah MENGGANTI LATAR BELAKANG (background) menjadi estetik dan profesional, SEPERTI FOTO STUDIO MAHAL. 
-Namun, KAMU HARUS MEMPERTAHANKAN 100% BENTUK ASLI PRODUK INI (jangan ubah bentuk produk utamanya).
-Tambahkan pencahayaan studio (lighting), bayangan realistis (shadows), dan letakkan di atas meja kayu estetik atau permukaan premium yang cocok dengan barang tersebut. 
-Jadikan resolusi tinggi dan sangat realistis.`
-
-            const chat = ai.chats.create({ model: 'gemini-2.5-flash-image' })
-
-            const response = await chat.sendMessage({
-                message: [
-                    { inlineData: { mimeType: 'image/jpeg', data: base64Data } },
-                    prompt
-                ]
-            })
-
-            // The output is returned as inlineData base64
-            const generatedImageBase64 = response.candidates?.[0]?.content?.parts?.[0]?.inlineData?.data
-
-            if (!generatedImageBase64) {
-                throw new Error('Gemini tidak mengembalikan gambar.')
+            if (!accountId || !aiToken || !geminiKey) {
+                return NextResponse.json({ error: 'Layanan AI belum dikonfigurasi sepenuhnya (Butuh Gemini & Cloudflare API Key)' }, { status: 503 })
             }
 
-            return NextResponse.json({ result: `data:image/jpeg;base64,${generatedImageBase64}` })
+            console.log(`[enhance] Calling Gemini 1.5 Flash for Image Analysis...`)
+            const genAI = new GoogleGenerativeAI(geminiKey)
+            const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
+            
+            const imagePart = {
+                inlineData: {
+                    data: base64Data,
+                    mimeType: "image/jpeg"
+                }
+            }
+
+            const visionPrompt = `
+            Analyze this product image carefully.
+            Write a highly detailed text-to-image prompt (Midjourney style) to recreate this exact product in a professional, aesthetic studio setting.
+            Describe the exact shape, color, typography, and recognizable branding of the main object you see.
+            Place it on a premium aesthetic background (e.g. marble table, wooden desk, soft pastel backdrop, or nature setting depending on context).
+            Use dramatic studio lighting, sharp focus, 8k resolution, photorealistic.
+            ONLY Output the prompt text, nothing else. No intro, no markdown. 
+            Focus strictly on making the main product look identical to the one in the photo.
+            ${product_name ? `Product context name: ${product_name}` : ''}
+            `
+
+            const result = await model.generateContent([visionPrompt, imagePart])
+            const generatedPrompt = result.response.text().trim()
+            
+            if(!generatedPrompt) throw new Error("Gemini gagal meracik prompt dari gambar")
+
+            console.log(`[enhance] Generated SDXL Prompt: ${generatedPrompt}`)
+
+            console.log(`[enhance] Calling Cloudflare SDXL for Generation...`)
+            const cfRes = await fetch(
+                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`,
+                {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${aiToken}`,
+                        'Content-Type': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        prompt: generatedPrompt,
+                        negative_prompt: 'blurry, low quality, dark, noisy, watermark, ugly, distorted, wrong text, bad branding, deformed',
+                        num_steps: 20,
+                        guidance: 7.5,
+                        width: 1024,
+                        height: 1024,
+                    }),
+                },
+            )
+
+            if (!cfRes.ok) {
+                const err = await cfRes.json().catch(() => ({}))
+                console.error('Cloudflare AI error:', err)
+                throw new Error('Gagal melakukan render gambar di Cloudflare SDXL')
+            }
+
+            const cfImageBuffer = await cfRes.arrayBuffer()
+            const outBase64 = Buffer.from(cfImageBuffer).toString('base64')
+
+            return NextResponse.json({ result: `data:image/png;base64,${outBase64}` })
         }
 
         // --- HUGGINGFACE BACKGROUND REMOVAL ACTION ---

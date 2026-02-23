@@ -46,8 +46,11 @@ export default function CheckoutPage() {
     return null
   }
 
-  // Calculate total weight
-  const totalWeight = 1000 // Default 1kg — in production, sum from product weights
+  // Calculate total weight based on actual products in cart
+  const totalWeight = Math.max(
+    100, // minimum weight 100g to avoid 0g payload errors
+    items.reduce((sum, item) => sum + ((item.weight_gram || 1000) * item.quantity), 0)
+  )
 
   async function fetchShippingRates() {
     if (!address.postal_code || address.postal_code.length < 5) return
@@ -222,9 +225,9 @@ export default function CheckoutPage() {
                         type="button"
                         onClick={() => setSelectedShipping(rate)}
                         className={`flex w-full items-center justify-between rounded-lg border p-3 text-left transition-colors ${selectedShipping?.courier_service_code === rate.courier_service_code &&
-                            selectedShipping?.courier_code === rate.courier_code
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'hover:bg-gray-50'
+                          selectedShipping?.courier_code === rate.courier_code
+                          ? 'border-blue-500 bg-blue-50'
+                          : 'hover:bg-gray-50'
                           }`}
                       >
                         <div className="flex items-center gap-3">

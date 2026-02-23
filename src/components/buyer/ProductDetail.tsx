@@ -42,7 +42,6 @@ export function ProductDetail({ product }: ProductDetailProps) {
         if (b.is_primary) return 1
         return a.sort_order - b.sort_order
     })
-
     function handleAddToCart() {
         addItem({
             product_id: product.id,
@@ -50,6 +49,7 @@ export function ProductDetail({ product }: ProductDetailProps) {
             price: product.price,
             quantity: qty,
             image_url: sortedImages[0]?.url || '',
+            weight_gram: product.weight_gram || 1000 // Default 1kg if undefined
         })
         setAdded(true)
         toast.success('Ditambahkan ke keranjang!')

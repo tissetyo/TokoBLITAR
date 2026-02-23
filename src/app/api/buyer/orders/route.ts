@@ -15,6 +15,11 @@ const orderSchema = z.object({
         province: z.string().optional(),
         postal_code: z.string().optional(),
     }),
+    shipping: z.object({
+        courier: z.string(),
+        cost: z.number().nonnegative(),
+        duration: z.string(),
+    }),
     promo_code: z.string().optional(),
 })
 
@@ -29,7 +34,7 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Data tidak valid', details: parsed.error.flatten() }, { status: 400 })
     }
 
-    const { items, shipping_address } = parsed.data
+    const { items, shipping_address, shipping } = parsed.data
 
     try {
         // Fetch product prices and store_id
@@ -64,6 +69,9 @@ export async function POST(request: Request) {
             }
         })
 
+        // Add shipping cost to grand total
+        totalAmount += shipping.cost
+
         // Create order
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { data: order, error: orderError } = await (supabase as any)
@@ -75,7 +83,12 @@ export async function POST(request: Request) {
                 total_amount: totalAmount,
                 discount_amount: 0,
                 source: 'web',
-                shipping_address: shipping_address,
+                shipping_address: {
+                    ...shipping_address,
+                    courier: shipping.courier,
+                    shipping_cost: shipping.cost,
+                    duration: shipping.duration
+                },
             })
             .select()
             .single()

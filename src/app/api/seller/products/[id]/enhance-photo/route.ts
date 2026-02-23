@@ -80,14 +80,72 @@ export async function POST(request: Request, { params }: Params) {
         )
 
         if (!llamaRes.ok) {
-            const err = await llamaRes.text().catch(() => "Unknown error")
-            console.error('Cloudflare Vision AI error:', err)
-            throw new Error(`Cloudflare API Error: ${err}`)
-        }
+            const errText = await llamaRes.text().catch(() => "Unknown error")
 
-        const llamaData = await llamaRes.json().catch(() => ({}))
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        generatedPrompt = (llamaData as any).choices?.[0]?.message?.content?.trim()
+            // --- HANDLE CLOUDFLARE META LLAMA 3.2 LICENSE AGREEMENT ---
+            if (errText.includes('5016') && errText.includes('agree')) {
+                console.log("[AI Pipeline] Cloudflare requires Meta Llama 3.2 License Agreement. Auto-accepting...");
+                const agreeRes = await fetch(
+                    `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+                    {
+                        method: 'POST',
+                        headers: {
+                            'Authorization': `Bearer ${aiToken}`,
+                            'Content-Type': 'application/json',
+                        },
+                        body: JSON.stringify({
+                            model: '@cf/meta/llama-3.2-11b-vision-instruct',
+                            messages: [{ role: 'user', content: 'agree' }]
+                        })
+                    }
+                );
+
+                if (agreeRes.ok) {
+                    console.log("[AI Pipeline] License accepted! Retrying image analysis...");
+                    // Retry original image reasoning
+                    const retryRes = await fetch(
+                        `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+                        {
+                            method: 'POST',
+                            headers: {
+                                'Authorization': `Bearer ${aiToken}`,
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify({
+                                model: '@cf/meta/llama-3.2-11b-vision-instruct',
+                                messages: [
+                                    {
+                                        role: 'user',
+                                        content: [
+                                            { type: 'text', text: visionPrompt },
+                                            { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
+                                        ]
+                                    }
+                                ],
+                                max_tokens: 256
+                            })
+                        }
+                    );
+
+                    if (!retryRes.ok) {
+                        throw new Error(`Cloudflare API Error after retry: ${await retryRes.text()}`)
+                    }
+
+                    const retryData = await retryRes.json().catch(() => ({}))
+                    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+                    generatedPrompt = (retryData as any).choices?.[0]?.message?.content?.trim()
+                } else {
+                    throw new Error(`Gagal menyetujui lisensi Llama: ${await agreeRes.text()}`)
+                }
+            } else {
+                console.error('Cloudflare Vision AI error:', errText)
+                throw new Error(`Cloudflare API Error: ${errText}`)
+            }
+        } else {
+            const llamaData = await llamaRes.json().catch(() => ({}))
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
+            generatedPrompt = (llamaData as any).choices?.[0]?.message?.content?.trim()
+        }
 
         if (!generatedPrompt) throw new Error("Cloudflare Llama returned empty prompt")
 

@@ -53,7 +53,7 @@ export async function POST(request: Request) {
             `
 
             const llamaRes = await fetch(
-                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/meta/llama-3.2-11b-vision-instruct`,
+                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
                 {
                     method: 'POST',
                     headers: {
@@ -84,7 +84,7 @@ export async function POST(request: Request) {
 
             const llamaData = await llamaRes.json().catch(() => ({}))
             // eslint-disable-next-line @typescript-eslint/no-explicit-any
-            const generatedPrompt = (llamaData as any).result?.response?.trim()
+            const generatedPrompt = (llamaData as any).choices?.[0]?.message?.content?.trim()
 
             if (!generatedPrompt) throw new Error("Cloudflare Llama mengembalikan prompt kosong")
 

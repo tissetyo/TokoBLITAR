@@ -53,27 +53,36 @@ export async function POST(request: Request) {
             ${product_name ? `Product context name: ${product_name}` : ''}
             `
 
+            let requestBody: any;
+            if (visionModel.includes('llama')) {
+                requestBody = {
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                { type: 'text', text: visionPrompt },
+                                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
+                            ]
+                        }
+                    ],
+                    max_tokens: 256
+                };
+            } else {
+                requestBody = {
+                    prompt: visionPrompt,
+                    image: Array.from(new Uint8Array(imageBuffer))
+                };
+            }
+
             const llamaRes = await fetch(
-                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${visionModel}`,
                 {
                     method: 'POST',
                     headers: {
                         'Authorization': `Bearer ${aiToken}`,
                         'Content-Type': 'application/json',
                     },
-                    body: JSON.stringify({
-                        model: visionModel,
-                        messages: [
-                            {
-                                role: 'user',
-                                content: [
-                                    { type: 'text', text: visionPrompt },
-                                    { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
-                                ]
-                            }
-                        ],
-                        max_tokens: 256
-                    })
+                    body: JSON.stringify(requestBody)
                 }
             )
 
@@ -101,26 +110,14 @@ export async function POST(request: Request) {
                         console.log("[enhance] License accepted! Retrying image analysis...");
                         // Retry the original request
                         const retryRes = await fetch(
-                            `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+                            `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${visionModel}`,
                             {
                                 method: 'POST',
                                 headers: {
                                     'Authorization': `Bearer ${aiToken}`,
                                     'Content-Type': 'application/json',
                                 },
-                                body: JSON.stringify({
-                                    model: '@cf/meta/llama-3.2-11b-vision-instruct',
-                                    messages: [
-                                        {
-                                            role: 'user',
-                                            content: [
-                                                { type: 'text', text: visionPrompt },
-                                                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
-                                            ]
-                                        }
-                                    ],
-                                    max_tokens: 256
-                                })
+                                body: JSON.stringify(requestBody)
                             }
                         );
 
@@ -130,9 +127,10 @@ export async function POST(request: Request) {
 
                         // Replace the main response string with the retry successful one
                         const retryData = await retryRes.json().catch(() => ({}))
+                        console.log("[enhance] RAW RETRY RESPONSE:", JSON.stringify(retryData, null, 2))
                         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const retryGeneratedPrompt = (retryData as any).choices?.[0]?.message?.content?.trim()
-                        if (!retryGeneratedPrompt) throw new Error("Cloudflare Llama mengembalikan prompt kosong setelah retry")
+                        const retryGeneratedPrompt = (retryData as any).choices?.[0]?.message?.content?.trim() || (retryData as any).result?.description?.trim() || (retryData as any).response?.trim()
+                        if (!retryGeneratedPrompt) throw new Error(`Cloudflare Llama mengembalikan prompt kosong setelah retry. Response: ${JSON.stringify(retryData)}`)
 
                         generatedPrompt = retryGeneratedPrompt;
                     } else {
@@ -144,8 +142,11 @@ export async function POST(request: Request) {
                 }
             } else {
                 const llamaData = await llamaRes.json().catch(() => ({}))
+                console.log("[enhance] RAW SUCCESS RESPONSE:", JSON.stringify(llamaData, null, 2))
+
+                // Fallback parsing for different Cloudflare AI models
                 // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                generatedPrompt = (llamaData as any).choices?.[0]?.message?.content?.trim()
+                generatedPrompt = ((llamaData as any).choices?.[0]?.message?.content || (llamaData as any).result?.description || (llamaData as any).result?.response || (llamaData as any).response || '').trim()
             }
 
             if (!generatedPrompt) throw new Error("Cloudflare Llama mengembalikan prompt kosong")

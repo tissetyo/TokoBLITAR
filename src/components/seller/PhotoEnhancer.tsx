@@ -14,7 +14,7 @@ interface PhotoEnhancerProps {
 
 export function PhotoEnhancer({ productId, imageUrl, onAccept }: PhotoEnhancerProps) {
   const [enhancedUrl, setEnhancedUrl] = useState<string | null>(null)
-  const [visionModel, setVisionModel] = useState<'@cf/meta/llama-3.2-11b-vision-instruct' | '@cf/llava-hf/llava-1.5-7b-hf' | '@cf/google/gemma-3-27b-it'>('@cf/meta/llama-3.2-11b-vision-instruct')
+  const [visionModel, setVisionModel] = useState<'@cf/meta/llama-3.2-11b-vision-instruct' | '@cf/llava-hf/llava-1.5-7b-hf' | '@cf/unum/uform-gen2-qwen-500m'>('@cf/meta/llama-3.2-11b-vision-instruct')
   const [loading, setLoading] = useState(false)
   const [showOriginal, setShowOriginal] = useState(false)
 
@@ -93,6 +93,16 @@ export function PhotoEnhancer({ productId, imageUrl, onAccept }: PhotoEnhancerPr
               </Button>
 
               <div className="flex gap-2">
+                <select
+                  className="w-full rounded-md border border-gray-200 text-sm py-1.5 px-3 bg-gray-50/50 shadow-sm focus:border-purple-400 focus:ring-purple-400 transition-colors"
+                  value={visionModel}
+                  onChange={(e) => setVisionModel(e.target.value as any)}
+                  disabled={loading}
+                >
+                  <option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision (Akurat)</option>
+                  <option value="@cf/llava-hf/llava-1.5-7b-hf">Llava 1.5 (Aman / Tanpa Agreement)</option>
+                  <option value="@cf/unum/uform-gen2-qwen-500m">UForm Qwen 500m (Super Cepat)</option>
+                </select>
                 <Button
                   variant="outline"
                   size="sm"

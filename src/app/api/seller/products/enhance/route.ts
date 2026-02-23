@@ -11,12 +11,7 @@ export async function POST(request: Request) {
     if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
     // Check API Keys
-    const geminiKey = process.env.GEMINI_API_KEY
-    if (!geminiKey) return NextResponse.json({ error: 'GEMINI_API_KEY belum di-set' }, { status: 503 })
 
-    const cfAccountId = process.env.CLOUDFLARE_ACCOUNT_ID
-    const cfToken = process.env.CLOUDFLARE_AI_TOKEN
-    if (!cfAccountId || !cfToken) return NextResponse.json({ error: 'Cloudflare AI config belum di-set' }, { status: 503 })
 
     let body
     try { body = await request.json() } catch {

@@ -57,8 +57,8 @@ export async function POST(request: Request) {
 
     // --- TEXT GENERATION (Groq or Gemini) ---
     if (type === 'description' || type === 'category') {
-        const groqKey = process.env.GROQ_API_KEY
-        const geminiKey = process.env.GEMINI_API_KEY
+        const openrouterKey = process.env.OPENROUTER_API_KEY
+        const baseSystemPrompt = "Kamu adalah asisten e-commerce profesional."
 
         let prompt = ''
         if (type === 'description') {
@@ -84,42 +84,37 @@ Jangan berikan penjelasan, hanya JSON array.`
         }
 
         try {
-            // Try Groq first
-            if (groqKey) {
-                const res = await fetch('https://api.groq.com/openai/v1/chat/completions', {
-                    method: 'POST',
-                    headers: { 'Authorization': `Bearer ${groqKey}`, 'Content-Type': 'application/json' },
-                    body: JSON.stringify({
-                        model: 'llama-3.3-70b-versatile',
-                        messages: [{ role: 'user', content: prompt }],
-                        max_tokens: 1024,
-                    }),
-                })
-                if (res.ok) {
-                    const data = await res.json()
-                    const text = data.choices?.[0]?.message?.content || ''
-                    return NextResponse.json({ result: text })
-                }
+            if (!openrouterKey) {
+                return NextResponse.json({ error: 'OPENROUTER_API_KEY belum dikonfigurasi' }, { status: 503 })
             }
 
-            // Fallback to Gemini
-            const geminiKeysStr = process.env.GEMINI_API_KEYS || process.env.GEMINI_API_KEY || ''
-            const geminiKeys = geminiKeysStr.split(',').map(k => k.trim()).filter(Boolean)
+            const res = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${openrouterKey}`,
+                    'HTTP-Referer': process.env.NEXT_PUBLIC_APP_URL || 'http://localhost:3000',
+                    'X-Title': 'TokoBLITAR',
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify({
+                    model: 'google/gemini-2.0-flash-lite-preview-02-05:free', // Free & fast model on OpenRouter
+                    messages: [
+                        { role: 'system', content: baseSystemPrompt },
+                        { role: 'user', content: prompt }
+                    ],
+                }),
+            })
 
-            if (geminiKeys.length > 0) {
-                const randomKey = geminiKeys[Math.floor(Math.random() * geminiKeys.length)]
-                console.log(`[ai-generate] Menggunakan Gemini API Key ke-${geminiKeys.indexOf(randomKey) + 1} dari ${geminiKeys.length} keys aktif`)
-
-                const { GoogleGenAI } = await import('@google/genai')
-                const ai = new GoogleGenAI({ apiKey: randomKey })
-                const response = await ai.models.generateContent({
-                    model: 'gemini-2.0-flash-lite',
-                    contents: prompt,
-                })
-                return NextResponse.json({ result: response.text || '' })
+            if (!res.ok) {
+                const errText = await res.text()
+                console.error('[ai-generate] OpenRouter error:', res.status, errText)
+                throw new Error(`OpenRouter API error: ${res.status}`)
             }
 
-            return NextResponse.json({ error: 'Tidak ada AI yang tersedia (set GROQ_API_KEY atau GEMINI_API_KEYS)' }, { status: 503 })
+            const data = await res.json()
+            const text = data.choices?.[0]?.message?.content || ''
+            return NextResponse.json({ result: text })
+
         } catch (err) {
             console.error('Text gen error:', err)
             return NextResponse.json({ error: 'Gagal generate konten' }, { status: 500 })

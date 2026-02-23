@@ -14,24 +14,25 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
-    const { image_base64, action, product_name, visionModel = '@cf/llava-hf/llava-1.5-7b-hf' } = body
-    if (!image_base64) {
-        return NextResponse.json({ error: 'Gambar tidak ditemukan' }, { status: 400 })
+    const { image_base64, action, product_name, visionModel = '@cf/llava-hf/llava-1.5-7b-hf', promptText, customInstruction } = body
+    if (!image_base64 && action !== 'generate_from_prompt') {
+        return NextResponse.json({ error: 'Image is required' }, { status: 400 })
     }
 
     try {
         console.log(`[enhance] Starting enhancement. Action: ${action}`)
+        let generatedPrompt = ''
 
         // Only support these actions
-        if (!['remove_bg', 'enhance', 'studio_background'].includes(action)) {
+        if (!['remove_bg', 'enhance', 'studio_background', 'analyze_image', 'generate_from_prompt'].includes(action)) {
             return NextResponse.json({ error: 'Aksi tidak didukung. Gunakan Hapus BG, Full Enhance, atau Studio Background.' }, { status: 400 })
         }
 
         // Clean base64 string
-        const base64Data = image_base64.includes(',') ? image_base64.split(',')[1] : image_base64
-        const imageBuffer = Buffer.from(base64Data, 'base64')
+        const base64Data = image_base64?.includes(',') ? image_base64.split(',')[1] : image_base64
+        const imageBuffer = base64Data ? Buffer.from(base64Data, 'base64') : undefined
 
-        if (action === 'studio_background') {
+        if (action === 'studio_background' || action === 'analyze_image' || action === 'enhance') {
             const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
             const aiToken = process.env.CLOUDFLARE_AI_TOKEN
 
@@ -39,10 +40,9 @@ export async function POST(request: Request) {
                 return NextResponse.json({ error: 'Layanan AI belum dikonfigurasi sepenuhnya (Butuh Cloudflare API Key)' }, { status: 503 })
             }
 
-            console.log(`[enhance] Calling Cloudflare Llama 3.2 Vision for Image Analysis...`)
+            console.log(`[enhance] Calling Cloudflare Vision Model (${visionModel}) for Image Analysis...`)
 
             // --- 1. VISION REASONING (Understanding the image) ---
-            let generatedPrompt = ''
             const visionPrompt = `
             Analyze this product image carefully. 
             Describe ONLY the main product object in extreme detail: 
@@ -70,7 +70,7 @@ export async function POST(request: Request) {
             } else {
                 requestBody = {
                     prompt: visionPrompt,
-                    image: Array.from(new Uint8Array(imageBuffer))
+                    image: Array.from(new Uint8Array(imageBuffer!))
                 };
             }
 
@@ -151,11 +151,36 @@ export async function POST(request: Request) {
 
             if (!generatedPrompt) throw new Error("Cloudflare Llama mengembalikan prompt kosong")
 
-            console.log(`[enhance] Generated SDXL Prompt: ${generatedPrompt}`)
+            if (action === 'analyze_image') {
+                return NextResponse.json({ result: generatedPrompt })
+            }
+        }
 
+        // 3. Image Generation Fallback (SDXL) handling
+        if (action === 'generate_from_prompt' || action === 'enhance') {
+            const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
+            const aiToken = process.env.CLOUDFLARE_AI_TOKEN
+
+            if (!accountId || !aiToken) {
+                return NextResponse.json({ error: 'Layanan AI belum dikonfigurasi sepenuhnya (Butuh Cloudflare API Key)' }, { status: 503 })
+            }
+
+            let finalImagePrompt = '';
+
+            if (action === 'generate_from_prompt') {
+                if (!promptText) return NextResponse.json({ error: 'Prompt text is required for generation' }, { status: 400 })
+                finalImagePrompt = `${promptText}. ${customInstruction ? `USER INSTRUCTION: ${customInstruction}.` : ''} High quality, photorealistic product photography, studio lighting.`;
+            } else { // action === 'enhance'
+                // generatedPrompt would have been set by the vision model if action was 'enhance'
+                if (!generatedPrompt) throw new Error("Vision model did not generate a prompt for enhancement.")
+                finalImagePrompt = `${generatedPrompt}. High quality, photorealistic product photography, studio lighting.`;
+            }
+
+            console.log(`[enhance] Generating image with prompt: ${finalImagePrompt}`)
             console.log(`[enhance] Calling Cloudflare SDXL for Generation...`)
-            const cfRes = await fetch(
-                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/stabilityai/stable-diffusion-xl-base-1.0`,
+
+            const sdRes = await fetch(
+                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/bytedance/stable-diffusion-xl-lightning`,
                 {
                     method: 'POST',
                     headers: {
@@ -163,7 +188,7 @@ export async function POST(request: Request) {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        prompt: generatedPrompt,
+                        prompt: finalImagePrompt,
                         negative_prompt: 'blurry, low quality, dark, noisy, watermark, ugly, distorted, wrong text, bad branding, deformed',
                         num_steps: 20,
                         guidance: 7.5,
@@ -173,13 +198,13 @@ export async function POST(request: Request) {
                 },
             )
 
-            if (!cfRes.ok) {
-                const err = await cfRes.json().catch(() => ({}))
+            if (!sdRes.ok) {
+                const err = await sdRes.json().catch(() => ({}))
                 console.error('Cloudflare AI error:', err)
                 throw new Error('Gagal melakukan render gambar di Cloudflare SDXL')
             }
 
-            const cfImageBuffer = await cfRes.arrayBuffer()
+            const cfImageBuffer = await sdRes.arrayBuffer()
             const outBase64 = Buffer.from(cfImageBuffer).toString('base64')
 
             return NextResponse.json({ result: `data:image/png;base64,${outBase64}` })

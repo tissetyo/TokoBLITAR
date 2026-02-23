@@ -31,7 +31,7 @@ export function ProductAITools({
     // Photo enhancement state
     const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null)
     const [enhancedPhoto, setEnhancedPhoto] = useState<string | null>(null)
-    const [visionModel, setVisionModel] = useState<'@cf/meta/llama-3.2-11b-vision-instruct' | '@cf/llava-hf/llava-1.5-7b-hf'>('@cf/meta/llama-3.2-11b-vision-instruct')
+    const [visionModel, setVisionModel] = useState<'@cf/meta/llama-3.2-11b-vision-instruct' | '@cf/llava-hf/llava-1.5-7b-hf' | '@cf/google/gemma-3-27b-it'>('@cf/meta/llama-3.2-11b-vision-instruct')
     const [showOriginal, setShowOriginal] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -183,6 +183,7 @@ export function ProductAITools({
                                         disabled={loading !== null}
                                     >
                                         <option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision (Akurat)</option>
+                                        <option value="@cf/google/gemma-3-27b-it">Google Gemma 3 (Terbaru / Pintar)</option>
                                         <option value="@cf/llava-hf/llava-1.5-7b-hf">Llava 1.5 (Aman / Tanpa Agreement)</option>
                                     </select>
                                 </div>

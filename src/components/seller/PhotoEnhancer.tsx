@@ -14,7 +14,7 @@ interface PhotoEnhancerProps {
 
 export function PhotoEnhancer({ productId, imageUrl, onAccept }: PhotoEnhancerProps) {
   const [enhancedUrl, setEnhancedUrl] = useState<string | null>(null)
-  const [visionModel, setVisionModel] = useState<'@cf/meta/llama-3.2-11b-vision-instruct' | '@cf/llava-hf/llava-1.5-7b-hf'>('@cf/meta/llama-3.2-11b-vision-instruct')
+  const [visionModel, setVisionModel] = useState<'@cf/meta/llama-3.2-11b-vision-instruct' | '@cf/llava-hf/llava-1.5-7b-hf' | '@cf/google/gemma-3-27b-it'>('@cf/meta/llama-3.2-11b-vision-instruct')
   const [loading, setLoading] = useState(false)
   const [showOriginal, setShowOriginal] = useState(false)
 

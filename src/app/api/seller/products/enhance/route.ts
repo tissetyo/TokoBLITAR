@@ -84,7 +84,7 @@ export async function POST(request: Request) {
                 if (errText.includes('5016') && errText.includes('agree')) {
                     console.log("[enhance] Cloudflare requires Meta Llama 3.2 License Agreement. Auto-accepting...");
                     const agreeRes = await fetch(
-                        `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+                        `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/meta/llama-3.2-11b-vision-instruct`,
                         {
                             method: 'POST',
                             headers: {
@@ -92,8 +92,7 @@ export async function POST(request: Request) {
                                 'Content-Type': 'application/json',
                             },
                             body: JSON.stringify({
-                                model: '@cf/meta/llama-3.2-11b-vision-instruct',
-                                messages: [{ role: 'user', content: 'agree' }]
+                                prompt: 'agree'
                             })
                         }
                     );

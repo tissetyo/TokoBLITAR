@@ -37,9 +37,9 @@ export async function POST(request: Request, { params }: Params) {
 
     try {
         const body = await request.json()
-        const { image_url, action = 'enhance', visionModel = '@cf/llava-hf/llava-1.5-7b-hf', promptText, customInstruction } = body
+        const { image_url, action = 'enhance', promptText, customInstruction } = body
 
-        if (!image_url && !imageBase64 && action !== 'generate_from_prompt') { // Added check for imageBase64 as well
+        if (!image_url && !imageBase64) {
             return NextResponse.json({ error: 'Image URL or Base64 is required' }, { status: 400 })
         }
 
@@ -64,139 +64,9 @@ export async function POST(request: Request, { params }: Params) {
         }
 
         const imageBuffer = Buffer.from(base64Data, 'base64')
-        let generatedPrompt = ''
-
-        if (action === 'analyze_image' || action === 'enhance') {
-            // 2. Vision Reasoning
-            const visionPrompt = `
-        Analyze this product image carefully.
-        Describe ONLY the main product object in extreme detail:
-        its shape, color, material, key features, and current angle.
-        Do not describe the background, people, or any text.
-        ONLY Output the prompt text, nothing else. No intro, no markdown.
-        Focus strictly on making the main product look identical to the one in the photo.
-        ${customPrompt ? `Additional user instruction: ${customPrompt}` : `Product context name: ${product.name}`}
-        `
-
-            let generatedPrompt = ''
-            console.log(`[AI Pipeline] Calling Cloudflare Vision Model (${visionModel}) for Image Analysis...`)
-
-            const imageBuffer = Buffer.from(base64Data, 'base64')
-            let requestBody: any;
-            if (visionModel.includes('llama')) {
-                requestBody = {
-                    messages: [
-                        {
-                            role: 'user',
-                            content: [
-                                { type: 'text', text: visionPrompt },
-                                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
-                            ]
-                        }
-                    ],
-                    max_tokens: 256
-                };
-            } else {
-                requestBody = {
-                    prompt: visionPrompt,
-                    image: Array.from(new Uint8Array(imageBuffer))
-                };
-            }
-
-            const llamaRes = await fetch(
-                `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${visionModel}`,
-                {
-                    method: 'POST',
-                    headers: {
-                        'Authorization': `Bearer ${aiToken}`,
-                        'Content-Type': 'application/json',
-                    },
-                    body: JSON.stringify(requestBody)
-                }
-            )
-
-            if (!llamaRes.ok) {
-                const errText = await llamaRes.text().catch(() => "Unknown error")
-
-                // --- HANDLE CLOUDFLARE META LLAMA 3.2 LICENSE AGREEMENT ---
-                if (errText.includes('5016') && errText.includes('agree')) {
-                    console.log("[AI Pipeline] Cloudflare requires Meta Llama 3.2 License Agreement. Auto-accepting...");
-                    const agreeRes = await fetch(
-                        `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/meta/llama-3.2-11b-vision-instruct`,
-                        {
-                            method: 'POST',
-                            headers: {
-                                'Authorization': `Bearer ${aiToken}`,
-                                'Content-Type': 'application/json',
-                            },
-                            body: JSON.stringify({
-                                prompt: 'agree'
-                            })
-                        }
-                    );
-
-                    if (agreeRes.ok) {
-                        console.log("[AI Pipeline] License accepted! Retrying image analysis...");
-                        // Retry the original request
-                        const retryRes = await fetch(
-                            `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/${visionModel}`,
-                            {
-                                method: 'POST',
-                                headers: {
-                                    'Authorization': `Bearer ${aiToken}`,
-                                    'Content-Type': 'application/json',
-                                },
-                                body: JSON.stringify(requestBody)
-                            }
-                        );
-
-                        if (!retryRes.ok) {
-                            throw new Error(`Cloudflare API Error after retry: ${await retryRes.text()}`)
-                        }
-
-                        const retryData = await retryRes.json().catch(() => ({}))
-                        console.log("[AI Pipeline] RAW RETRY RESPONSE:", JSON.stringify(retryData, null, 2))
-                        // Fallback parsing for different Cloudflare AI models
-                        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                        const retryGeneratedPrompt = ((retryData as any).choices?.[0]?.message?.content || (retryData as any).result?.description || (retryData as any).result?.response || (retryData as any).response || '').trim()
-                        if (!retryGeneratedPrompt) throw new Error(`Cloudflare Llama mengembalikan prompt kosong setelah retry. Response: ${JSON.stringify(retryData)}`)
-
-                        generatedPrompt = retryGeneratedPrompt;
-                    } else {
-                        throw new Error(`Gagal menyetujui lisensi Llama: ${await agreeRes.text()}`)
-                    }
-                } else {
-                    console.error('Cloudflare Vision AI error:', errText)
-                    throw new Error(`Cloudflare API Error: ${errText}`)
-                }
-            } else {
-                const llamaData = await llamaRes.json().catch(() => ({}))
-                console.log("[AI Pipeline] RAW SUCCESS RESPONSE:", JSON.stringify(llamaData, null, 2))
-
-                // Fallback parsing for different Cloudflare AI models
-                // eslint-disable-next-line @typescript-eslint/no-explicit-any
-                generatedPrompt = ((llamaData as any).choices?.[0]?.message?.content || (llamaData as any).result?.description || (llamaData as any).result?.response || (llamaData as any).response || '').trim()
-            }
-
-            if (!generatedPrompt) throw new Error("Cloudflare Llama returned empty prompt")
-
-            console.log(`[AI Pipeline] Generated Vision Text: ${generatedPrompt}`)
-
-            if (action === 'analyze_image') {
-                return NextResponse.json({ result: generatedPrompt })
-            }
-        }
-
-        if (action === 'generate_from_prompt' || action === 'enhance') {
-            let finalImagePrompt = '';
-
-            if (action === 'generate_from_prompt') {
-                if (!promptText) return NextResponse.json({ error: 'Prompt text is required for generation' }, { status: 400 })
-                finalImagePrompt = `${promptText}. ${customInstruction ? `USER INSTRUCTION: ${customInstruction}.` : ''} High quality, photorealistic product photography, studio lighting.`;
-            } else { // action === 'enhance'
-                if (!generatedPrompt) throw new Error("Vision model did not generate a prompt for enhancement.")
-                finalImagePrompt = `${generatedPrompt}. High quality, photorealistic product photography, studio lighting.`;
-            }
+        if (action === 'enhance' || action === 'generate_from_prompt') {
+            const basePrompt = customInstruction || promptText || 'high quality, enhanced details, vibrant colors';
+            const finalImagePrompt = `${basePrompt}. Highly detailed, photorealistic, 4k.`;
 
             console.log(`[enhance] Generating image with prompt: ${finalImagePrompt}`)
 

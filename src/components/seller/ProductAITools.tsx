@@ -31,9 +31,7 @@ export function ProductAITools({
     // Photo enhancement state
     const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null)
     const [enhancedPhoto, setEnhancedPhoto] = useState<string | null>(null)
-    const [visionModel, setVisionModel] = useState<'@cf/meta/llama-3.2-11b-vision-instruct' | '@cf/llava-hf/llava-1.5-7b-hf' | '@cf/unum/uform-gen2-qwen-500m'>('@cf/meta/llama-3.2-11b-vision-instruct')
     const [showOriginal, setShowOriginal] = useState(false)
-    const [analyzedPrompt, setAnalyzedPrompt] = useState<string | null>(null)
     const [userInstruction, setUserInstruction] = useState('')
     const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -103,15 +101,14 @@ export function ProductAITools({
         e.target.value = ''
     }
 
-    async function enhancePhoto(action: 'remove_bg' | 'upscale' | 'enhance' | 'studio_background' | 'analyze_image' | 'generate_from_prompt') {
+    async function enhancePhoto(action: 'remove_bg' | 'upscale' | 'enhance' | 'studio_background' | 'generate_from_prompt') {
         if (!uploadedPhoto) return
         setLoading(`enhance_${action}`)
         try {
             const base64 = uploadedPhoto.split(',')[1]
-            const payload: any = { image_base64: base64, action, visionModel }
+            const payload: any = { image_base64: base64, action }
             if (action === 'generate_from_prompt') {
-                payload.promptText = analyzedPrompt
-                payload.customInstruction = userInstruction
+                payload.promptText = userInstruction
             }
 
             const res = await fetch('/api/seller/products/enhance', {
@@ -124,10 +121,7 @@ export function ProductAITools({
                 toast.error(data.error || 'Gagal enhance foto')
                 return
             }
-            if (action === 'analyze_image') {
-                setAnalyzedPrompt(data.result)
-                toast.success('Analisis gambar selesai! Silakan edit prompt di bawah.')
-            } else if (action === 'generate_from_prompt') {
+            if (action === 'generate_from_prompt') {
                 setEnhancedPhoto(data.result)
                 toast.success('Foto berhasil di-generate!')
             } else {
@@ -186,67 +180,39 @@ export function ProductAITools({
                             </div>
 
                             <div className="space-y-3">
-                                <div className="flex flex-col space-y-1.5 px-1">
-                                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Vision Engine</label>
-                                    <select
-                                        className="w-full rounded-md border border-gray-200 text-sm py-1.5 px-3 bg-gray-50/50 shadow-sm focus:border-purple-400 focus:ring-purple-400 transition-colors"
-                                        value={visionModel}
-                                        onChange={(e) => setVisionModel(e.target.value as any)}
-                                        disabled={loading !== null}
-                                    >
-                                        <option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision (Akurat)</option>
-                                        <option value="@cf/llava-hf/llava-1.5-7b-hf">Llava 1.5 (Aman / Tanpa Agreement)</option>
-                                        <option value="@cf/unum/uform-gen2-qwen-500m">UForm Qwen 500m (Super Cepat)</option>
-                                    </select>
-                                </div>
-
-                                {!analyzedPrompt ? (
+                                <div className="space-y-4 rounded-lg border border-purple-100 bg-purple-50/30 p-4">
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-purple-800">Ubah Background dengan AI:</label>
+                                        <textarea
+                                            className="w-full rounded-md border border-purple-200 text-sm py-2 px-3 focus:border-purple-400 focus:ring-purple-400 transition-colors bg-white min-h-[80px]"
+                                            value={userInstruction}
+                                            onChange={(e) => setUserInstruction(e.target.value)}
+                                            placeholder="Contoh: Ubah warna latarnya jadi merah tua, beri efek pantulan cahaya studio..."
+                                        />
+                                    </div>
+                                    <Button
+                                        type="button"
+                                        className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 transition-all text-white font-medium shadow-md hover:shadow-lg"
+                                        onClick={() => enhancePhoto('generate_from_prompt')} disabled={loading !== null || userInstruction.trim() === ''}>
+                                        {loading === 'enhance_generate_from_prompt' ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Wand2 className="h-4 w-4 text-white" />}
+                                        <span className="font-bold">Generate AI Image 🚀</span>
+                                    </Button>
+                                    <Button variant="ghost" size="sm" onClick={() => {
+                                        setEnhancedPhoto(null)
+                                        setUserInstruction('')
+                                        toast.info('Foto asli dipertahankan')
+                                    }}>
+                                        <X className="mr-1 h-3 w-3" /> Pertahankan Foto Asli
+                                    </Button>
                                     <Button
                                         type="button"
                                         variant="outline"
-                                        className="w-full flex items-center justify-center gap-2 border-purple-200 bg-purple-50 hover:bg-purple-100 transition-all text-purple-700 font-medium"
-                                        onClick={() => enhancePhoto('analyze_image')} disabled={loading !== null}>
-                                        {loading === 'enhance_analyze_image' ? <Loader2 className="h-4 w-4 animate-spin text-purple-500" /> : <Wand2 className="h-4 w-4 text-purple-600" />}
-                                        <span className="font-bold text-purple-700">Analisis Foto (AI Vision)✨</span>
+                                        className="w-full flex items-center justify-center gap-2 hover:bg-orange-50 hover:text-orange-700 transition-colors"
+                                        onClick={() => enhancePhoto('remove_bg')} disabled={loading !== null}>
+                                        {loading === 'enhance_remove_bg' ? <Loader2 className="h-4 w-4 animate-spin text-orange-500" /> : <Eraser className="h-4 w-4 text-orange-500" />}
+                                        Hapus Background
                                     </Button>
-                                ) : (
-                                    <div className="space-y-3 rounded-lg border border-purple-100 bg-purple-50/30 p-3">
-                                        <div className="space-y-1.5">
-                                            <label className="text-xs font-semibold text-purple-800">1. Hasil Pandangan AI (Edit jika salah):</label>
-                                            <textarea
-                                                className="w-full rounded-md border border-purple-200 text-sm py-2 px-3 focus:border-purple-400 focus:ring-purple-400 transition-colors min-h-[80px]"
-                                                value={analyzedPrompt}
-                                                onChange={(e) => setAnalyzedPrompt(e.target.value)}
-                                                placeholder="Deskripsi fisik produk dari AI..."
-                                            />
-                                        </div>
-                                        <div className="space-y-1.5">
-                                            <label className="text-xs font-semibold text-purple-800">2. Instruksi Tambahan (Opsional):</label>
-                                            <textarea
-                                                className="w-full rounded-md border border-purple-200 text-sm py-2 px-3 focus:border-purple-400 focus:ring-purple-400 transition-colors bg-white min-h-[60px]"
-                                                value={userInstruction}
-                                                onChange={(e) => setUserInstruction(e.target.value)}
-                                                placeholder="Contoh: Ubah warna botol jadi merah tua, tambahkan efek cipratan air..."
-                                            />
-                                        </div>
-                                        <Button
-                                            type="button"
-                                            className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 transition-all text-white font-medium shadow-md hover:shadow-lg"
-                                            onClick={() => enhancePhoto('generate_from_prompt')} disabled={loading !== null}>
-                                            {loading === 'enhance_generate_from_prompt' ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Wand2 className="h-4 w-4 text-white" />}
-                                            <span className="font-bold">Generate Final Image 🚀</span>
-                                        </Button>
-                                    </div>
-                                )}
-
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="w-full flex items-center justify-center gap-2 hover:bg-orange-50 hover:text-orange-700 transition-colors"
-                                    onClick={() => enhancePhoto('remove_bg')} disabled={loading !== null}>
-                                    {loading === 'enhance_remove_bg' ? <Loader2 className="h-4 w-4 animate-spin text-orange-500" /> : <Eraser className="h-4 w-4 text-orange-500" />}
-                                    Hapus Background
-                                </Button>
+                                </div>
                             </div>
 
                             <div className="flex gap-2 mt-3">
@@ -257,7 +223,7 @@ export function ProductAITools({
                                         <Check className="mr-1 h-3 w-3" /> Gunakan Hasil
                                     </Button>
                                 )}
-                                <Button type="button" variant="outline" size="sm" onClick={() => { setUploadedPhoto(null); setEnhancedPhoto(null); setAnalyzedPrompt(null); setUserInstruction('') }}>
+                                <Button type="button" variant="outline" size="sm" onClick={() => { setUploadedPhoto(null); setEnhancedPhoto(null); setUserInstruction('') }}>
                                     <X className="mr-1 h-3 w-3" /> Reset
                                 </Button>
                             </div>

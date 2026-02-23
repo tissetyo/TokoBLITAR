@@ -31,6 +31,7 @@ export function ProductAITools({
     // Photo enhancement state
     const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null)
     const [enhancedPhoto, setEnhancedPhoto] = useState<string | null>(null)
+    const [visionModel, setVisionModel] = useState<'@cf/meta/llama-3.2-11b-vision-instruct' | '@cf/llava-hf/llava-1.5-7b-hf'>('@cf/meta/llama-3.2-11b-vision-instruct')
     const [showOriginal, setShowOriginal] = useState(false)
     const fileInputRef = useRef<HTMLInputElement>(null)
 
@@ -108,7 +109,7 @@ export function ProductAITools({
             const res = await fetch('/api/seller/products/enhance', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image_base64: base64, action }),
+                body: JSON.stringify({ image_base64: base64, action, visionModel }),
             })
             const data = await res.json()
             if (!res.ok) {
@@ -172,19 +173,36 @@ export function ProductAITools({
                                 )}
                             </div>
 
-                            <div className="grid grid-cols-2 gap-2 mb-2">
-                                <Button type="button" variant="outline" size="sm"
-                                    className="h-auto flex-col gap-1 py-2 text-[10px] hover:bg-orange-50 hover:border-orange-200"
-                                    onClick={() => enhancePhoto('remove_bg')} disabled={loading !== null}>
-                                    {loading === 'enhance_remove_bg' ? <Loader2 className="h-4 w-4 animate-spin text-orange-500" /> : <Eraser className="h-4 w-4 text-orange-500" />}
-                                    Hapus BG
-                                </Button>
-                                <Button type="button" variant="outline" size="sm"
-                                    className="h-auto flex-col gap-1 py-2 text-[10px] bg-gradient-to-br hover:from-blue-50 hover:to-purple-50 hover:border-purple-300 border-purple-200"
+                            <div className="space-y-3">
+                                <div className="flex flex-col space-y-1.5 px-1">
+                                    <label className="text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Vision Engine</label>
+                                    <select
+                                        className="w-full rounded-md border border-gray-200 text-sm py-1.5 px-3 bg-gray-50/50 shadow-sm focus:border-purple-400 focus:ring-purple-400 transition-colors"
+                                        value={visionModel}
+                                        onChange={(e) => setVisionModel(e.target.value as any)}
+                                        disabled={loading !== null}
+                                    >
+                                        <option value="@cf/meta/llama-3.2-11b-vision-instruct">Llama 3.2 Vision (Akurat)</option>
+                                        <option value="@cf/llava-hf/llava-1.5-7b-hf">Llava 1.5 (Aman / Tanpa Agreement)</option>
+                                    </select>
+                                </div>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="w-full flex items-center justify-center gap-2 border-purple-200 bg-purple-50 hover:bg-purple-100 transition-all text-purple-700 font-medium"
                                     onClick={() => enhancePhoto('studio_background')} disabled={loading !== null}>
                                     {loading === 'enhance_studio_background' ? <Loader2 className="h-4 w-4 animate-spin text-purple-500" /> : <Wand2 className="h-4 w-4 text-purple-600" />}
-                                    <span className="font-medium text-purple-700">Magic Enhance✨</span>
+                                    <span className="font-bold text-purple-700">Magic Enhance✨</span>
                                 </Button>
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="w-full flex items-center justify-center gap-2 hover:bg-orange-50 hover:text-orange-700 transition-colors"
+                                    onClick={() => enhancePhoto('remove_bg')} disabled={loading !== null}>
+                                    {loading === 'enhance_remove_bg' ? <Loader2 className="h-4 w-4 animate-spin text-orange-500" /> : <Eraser className="h-4 w-4 text-orange-500" />}
+                                    Hapus Background
+                                </Button>
+
                             </div>
 
                             <div className="flex gap-2 mt-3">

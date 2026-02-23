@@ -36,24 +36,45 @@ export async function POST(request: Request, { params }: Params) {
     }
 
     try {
-        // --- STEP 1: Vision Analysis via Cloudflare Llama 3.2 Vision ---
-        let generatedPrompt = ''
+        const body = await request.json()
+        const { image_url, visionModel = '@cf/llava-hf/llava-1.5-7b-hf' } = body
 
-        // Strip the data:image prefix if present to get raw base64
-        const base64Data = imageBase64.replace(/^data:image\/(png|jpeg|webp);base64,/, "")
+        if (!image_url && !imageBase64) { // Added check for imageBase64 as well
+            return NextResponse.json({ error: 'Image URL or Base64 is required' }, { status: 400 })
+        }
 
+        // Re-declare accountId and aiToken if they were not already defined, or ensure they are used from the outer scope
+        const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
+        const aiToken = process.env.CLOUDFLARE_AI_TOKEN
+
+        if (!accountId || !aiToken) {
+            return NextResponse.json({ error: 'AI Services not configured' }, { status: 503 })
+        }
+
+        let base64Data: string;
+        if (image_url) {
+            // 1. Fetch the actual image from the bucket to get base64
+            const imgRes = await fetch(image_url)
+            const arrayBuffer = await imgRes.arrayBuffer()
+            base64Data = Buffer.from(arrayBuffer).toString('base64')
+        } else {
+            // Strip the data:image prefix if present to get raw base64
+            base64Data = imageBase64.replace(/^data:image\/(png|jpeg|webp);base64,/, "")
+        }
+
+        // 2. Vision Reasoning
         const visionPrompt = `
         Analyze this product image carefully.
-        Write a highly detailed text-to-image prompt (Midjourney style) to recreate this exact product in a professional, aesthetic studio setting.
-        Describe the exact shape, color, typography, and recognizable branding of the main object you see.
-        Place it on a premium aesthetic background (e.g. marble table, wooden desk, soft pastel backdrop, or nature setting depending on context).
-        Use dramatic studio lighting, sharp focus, 8k resolution, photorealistic.
-        ONLY Output the prompt text, nothing else. No intro, no markdown. 
+        Describe ONLY the main product object in extreme detail:
+        its shape, color, material, key features, and current angle.
+        Do not describe the background, people, or any text.
+        ONLY Output the prompt text, nothing else. No intro, no markdown.
         Focus strictly on making the main product look identical to the one in the photo.
         ${customPrompt ? `Additional user instruction: ${customPrompt}` : `Product context name: ${product.name}`}
         `
 
-        console.log(`[AI Pipeline] Calling Cloudflare Llama 3.2 Vision for Image Analysis...`)
+        let generatedPrompt = ''
+        console.log(`[AI Pipeline] Calling Cloudflare Vision Model (${visionModel}) for Image Analysis...`)
 
         const llamaRes = await fetch(
             `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
@@ -64,7 +85,7 @@ export async function POST(request: Request, { params }: Params) {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    model: '@cf/meta/llama-3.2-11b-vision-instruct',
+                    model: visionModel,
                     messages: [
                         {
                             role: 'user',

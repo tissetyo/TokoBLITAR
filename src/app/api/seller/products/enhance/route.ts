@@ -14,9 +14,9 @@ export async function POST(request: Request) {
         return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
     }
 
-    const { image_base64, action, product_name } = body
+    const { image_base64, action, product_name, visionModel = '@cf/llava-hf/llava-1.5-7b-hf' } = body
     if (!image_base64) {
-        return NextResponse.json({ error: 'image_base64 is required' }, { status: 400 })
+        return NextResponse.json({ error: 'Gambar tidak ditemukan' }, { status: 400 })
     }
 
     try {
@@ -41,18 +41,18 @@ export async function POST(request: Request) {
 
             console.log(`[enhance] Calling Cloudflare Llama 3.2 Vision for Image Analysis...`)
 
+            // --- 1. VISION REASONING (Understanding the image) ---
+            let generatedPrompt = ''
             const visionPrompt = `
-            Analyze this product image carefully.
-            Write a highly detailed text-to-image prompt (Midjourney style) to recreate this exact product in a professional, aesthetic studio setting.
-            Describe the exact shape, color, typography, and recognizable branding of the main object you see.
-            Place it on a premium aesthetic background (e.g. marble table, wooden desk, soft pastel backdrop, or nature setting depending on context).
-            Use dramatic studio lighting, sharp focus, 8k resolution, photorealistic.
+            Analyze this product image carefully. 
+            Describe ONLY the main product object in extreme detail: 
+            its shape, color, material, key features, and current angle.
+            Do not describe the background, people, or any text. 
             ONLY Output the prompt text, nothing else. No intro, no markdown. 
             Focus strictly on making the main product look identical to the one in the photo.
             ${product_name ? `Product context name: ${product_name}` : ''}
             `
 
-            let generatedPrompt = ''
             const llamaRes = await fetch(
                 `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
                 {
@@ -62,7 +62,7 @@ export async function POST(request: Request) {
                         'Content-Type': 'application/json',
                     },
                     body: JSON.stringify({
-                        model: '@cf/meta/llama-3.2-11b-vision-instruct',
+                        model: visionModel,
                         messages: [
                             {
                                 role: 'user',

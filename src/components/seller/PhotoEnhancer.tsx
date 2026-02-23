@@ -14,6 +14,7 @@ interface PhotoEnhancerProps {
 
 export function PhotoEnhancer({ productId, imageUrl, onAccept }: PhotoEnhancerProps) {
   const [enhancedUrl, setEnhancedUrl] = useState<string | null>(null)
+  const [visionModel, setVisionModel] = useState<'@cf/meta/llama-3.2-11b-vision-instruct' | '@cf/llava-hf/llava-1.5-7b-hf'>('@cf/meta/llama-3.2-11b-vision-instruct')
   const [loading, setLoading] = useState(false)
   const [showOriginal, setShowOriginal] = useState(false)
 
@@ -23,7 +24,7 @@ export function PhotoEnhancer({ productId, imageUrl, onAccept }: PhotoEnhancerPr
       const res = await fetch(`/api/seller/products/${productId}/enhance-photo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_url: imageUrl }),
+        body: JSON.stringify({ image_url: imageUrl, visionModel }),
       })
 
       const data = await res.json()

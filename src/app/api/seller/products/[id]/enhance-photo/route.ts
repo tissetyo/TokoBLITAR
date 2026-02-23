@@ -1,10 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createSupabaseServerClient } from '@/lib/supabase/server'
-import { GoogleGenerativeAI } from '@google/generative-ai'
 
 type Params = { params: Promise<{ id: string }> }
 
-// POST: enhance a product photo using Gemini 1.5 (Analysis) + Cloudflare Workers AI (Generation)
+// POST: enhance a product photo using Cloudflare Llama 3.2 Vision (Analysis) + Cloudflare SDXL (Generation)
 export async function POST(request: Request, { params }: Params) {
     const { id } = await params
     const supabase = await createSupabaseServerClient()
@@ -31,27 +30,17 @@ export async function POST(request: Request, { params }: Params) {
 
     const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
     const aiToken = process.env.CLOUDFLARE_AI_TOKEN
-    const geminiKey = process.env.GEMINI_API_KEY
 
-    if (!accountId || !aiToken || !geminiKey) {
-        return NextResponse.json({ error: 'AI Services not fully configured. Please set GEMINI_API_KEY, CLOUDFLARE_ACCOUNT_ID, and CLOUDFLARE_AI_TOKEN' }, { status: 503 })
+    if (!accountId || !aiToken) {
+        return NextResponse.json({ error: 'AI Services not fully configured. Please set CLOUDFLARE_ACCOUNT_ID and CLOUDFLARE_AI_TOKEN' }, { status: 503 })
     }
 
     try {
-        // --- STEP 1: Vision Analysis via Gemini 1.5 Flash ---
-        const genAI = new GoogleGenerativeAI(geminiKey)
-        const model = genAI.getGenerativeModel({ model: 'gemini-1.5-flash' })
-
+        // --- STEP 1: Vision Analysis via Cloudflare Llama 3.2 Vision ---
         let generatedPrompt = ''
 
         // Strip the data:image prefix if present to get raw base64
         const base64Data = imageBase64.replace(/^data:image\/(png|jpeg|webp);base64,/, "")
-        const imagePart = {
-            inlineData: {
-                data: base64Data,
-                mimeType: "image/jpeg" // Using generic jpeg, gemini accepts it usually
-            }
-        }
 
         const visionPrompt = `
         Analyze this product image carefully.
@@ -64,10 +53,43 @@ export async function POST(request: Request, { params }: Params) {
         ${customPrompt ? `Additional user instruction: ${customPrompt}` : `Product context name: ${product.name}`}
         `
 
-        const result = await model.generateContent([visionPrompt, imagePart])
-        generatedPrompt = result.response.text().trim()
+        console.log(`[AI Pipeline] Calling Cloudflare Llama 3.2 Vision for Image Analysis...`)
 
-        if (!generatedPrompt) throw new Error("Gemini failed to generate a prompt")
+        const llamaRes = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${aiToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model: '@cf/meta/llama-3.2-11b-vision-instruct',
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                { type: 'text', text: visionPrompt },
+                                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
+                            ]
+                        }
+                    ],
+                    max_tokens: 256
+                })
+            }
+        )
+
+        if (!llamaRes.ok) {
+            const err = await llamaRes.json().catch(() => ({}))
+            console.error('Cloudflare Vision AI error:', err)
+            throw new Error("Cloudflare Llama failed to analyze image")
+        }
+
+        const llamaData = await llamaRes.json()
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        generatedPrompt = (llamaData as any).choices?.[0]?.message?.content?.trim()
+
+        if (!generatedPrompt) throw new Error("Cloudflare Llama returned empty prompt")
 
         console.log(`[AI Pipeline] Generated SDXL Prompt: ${generatedPrompt}`)
 
@@ -98,17 +120,18 @@ export async function POST(request: Request, { params }: Params) {
         }
 
         // Cloudflare returns raw image bytes
-        const imageBuffer = await cfRes.arrayBuffer()
-        const base64 = Buffer.from(imageBuffer).toString('base64')
-        const dataUrl = `data:image/png;base64,${base64}`
+        const cfImageBuffer = await cfRes.arrayBuffer()
+        const outBase64 = Buffer.from(cfImageBuffer).toString('base64')
+        const dataUrl = `data:image/png;base64,${outBase64}`
 
         return NextResponse.json({
             image_url: dataUrl,
             prompt_used: generatedPrompt,
             status: 'succeeded',
         })
-    } catch (err) {
-        console.error('AI enhancement error:', err)
-        return NextResponse.json({ error: err instanceof Error ? err.message : 'AI service error' }, { status: 500 })
+
+    } catch (err: any) {
+        console.error('[AI Pipeline Error]:', err)
+        return NextResponse.json({ error: err.message || 'Internal Server Error' }, { status: 500 })
     }
 }

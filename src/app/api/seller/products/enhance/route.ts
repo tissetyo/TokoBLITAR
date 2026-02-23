@@ -77,9 +77,9 @@ export async function POST(request: Request) {
             )
 
             if (!llamaRes.ok) {
-                const err = await llamaRes.json().catch(() => ({}))
+                const err = await llamaRes.text().catch(() => "Unknown error")
                 console.error('Cloudflare Vision AI error:', err)
-                throw new Error("Cloudflare Llama gagal menganalisis gambar")
+                throw new Error(`Cloudflare API Error: ${err}`)
             }
 
             const llamaData = await llamaRes.json().catch(() => ({}))

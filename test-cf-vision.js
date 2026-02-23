@@ -1,44 +1,57 @@
 const fs = require('fs');
 
-async function test() {
-    const aiToken = process.env.CLOUDFLARE_AI_TOKEN;
-    const accountId = process.env.CLOUDFLARE_ACCOUNT_ID;
-    
-    if(!aiToken || !accountId) {
-        console.log("Missing env vars. Please run with CLOUDFLARE_AI_TOKEN=... CLOUDFLARE_ACCOUNT_ID=...");
-        return;
+const envLocal = fs.readFileSync('.env.local', 'utf8');
+const envVars = envLocal.split('\n').reduce((acc, line) => {
+    const [key, ...values] = line.split('=');
+    if (key && values.length > 0) {
+        let value = values.join('=').trim();
+        if (value.startsWith('"') && value.endsWith('"')) value = value.slice(1, -1);
+        acc[key.trim()] = value;
     }
+    return acc;
+}, {});
 
-    // Create a tiny 1x1 black pixel base64 jpeg for testing
-    const base64Data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
-    
-    const visionPrompt = "What is in this image?";
-    
-    console.log("Sending request to Cloudflare...");
-    const res = await fetch(`https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`, {
-        method: 'POST',
-        headers: {
-            'Authorization': `Bearer ${aiToken}`,
-            'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-            model: '@cf/meta/llama-3.2-11b-vision-instruct',
-            messages: [
-                {
-                    role: 'user',
-                    content: [
-                        { type: 'text', text: visionPrompt },
-                        { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
-                    ]
-                }
-            ],
-            max_tokens: 256
-        })
-    });
-    
-    const data = await res.json();
-    console.log("Response status:", res.status);
-    console.log("Response body:", JSON.stringify(data, null, 2));
+const accountId = envVars.CLOUDFLARE_ACCOUNT_ID;
+const aiToken = envVars.CLOUDFLARE_AI_TOKEN;
+
+const base64Data = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=";
+const visionPrompt = "Describe this image.";
+
+async function runTest() {
+    console.log("Testing with accountId:", accountId ? "Set" : "Missing");
+    console.log("Testing with aiToken:", aiToken ? "Set" : "Missing");
+
+    try {
+        const response = await fetch(
+            `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/v1/chat/completions`,
+            {
+                method: 'POST',
+                headers: {
+                    'Authorization': `Bearer ${aiToken}`,
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    model: '@cf/meta/llama-3.2-11b-vision-instruct',
+                    messages: [
+                        {
+                            role: 'user',
+                            content: [
+                                { type: 'text', text: visionPrompt },
+                                { type: 'image_url', image_url: { url: `data:image/jpeg;base64,${base64Data}` } }
+                            ]
+                        }
+                    ],
+                    max_tokens: 256
+                })
+            }
+        );
+
+        console.log("Response Status:", response.status);
+        const text = await response.text();
+        console.log("Response Body:", text);
+    } catch (err) {
+        console.error("Test failed:", err);
+    }
 }
 
-test();
+runTest();

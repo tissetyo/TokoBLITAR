@@ -3,7 +3,7 @@
 import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Sparkles, ImageIcon, FileText, Tags, Loader2, Check, X, Upload, Eraser, ZoomIn, Wand2 } from 'lucide-react'
+import { Sparkles, ImageIcon, FileText, Tags, Loader2, Check, X, Upload, Eraser, ZoomIn, Wand2, ExternalLink } from 'lucide-react'
 import { toast } from 'sonner'
 
 interface ProductAIToolsProps {
@@ -203,6 +203,34 @@ export function ProductAITools({
                     )}
                 </div>
 
+
+
+                <div className="rounded-lg border border-dashed border-gray-200 bg-gray-50/50 p-4">
+                    <p className="mb-2 text-xs font-semibold text-gray-700">🌟 Ingin Hasil Seperti Foto Studio (Ada Background Mewah)?</p>
+                    <p className="mb-3 text-[10px] text-gray-500">Karena keterbatasan server AI gratis, untuk membuat foto produk dengan background estetik seperti di atas karpet kayu, silakan gunakan AI Studio gratis pihak ketiga.</p>
+                    <div className="flex gap-2">
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 text-[11px] bg-white hover:bg-gray-100"
+                            onClick={() => window.open('https://www.photoroom.com/tools/background-generator', '_blank')}
+                        >
+                            Buka Photoroom AI <ExternalLink className="ml-1.5 h-3 w-3" />
+                        </Button>
+                        <Button
+                            type="button"
+                            variant="outline"
+                            size="sm"
+                            className="flex-1 text-[11px] bg-white hover:bg-gray-100"
+                            onClick={() => window.open('https://pebblely.com/', '_blank')}
+                        >
+                            Buka Pebblely AI <ExternalLink className="ml-1.5 h-3 w-3" />
+                        </Button>
+                    </div>
+                    <p className="mt-2 text-center text-[9px] text-gray-400 italic">Edit foto di sana ➔ Download hasilnya ➔ Upload kembali ke TokoBLITAR</p>
+                </div>
+
                 <div className="border-t" />
 
                 {/* ===== GENERATE SECTION ===== */}
@@ -271,6 +299,6 @@ export function ProductAITools({
                     </p>
                 )}
             </CardContent>
-        </Card>
+        </Card >
     )
 }

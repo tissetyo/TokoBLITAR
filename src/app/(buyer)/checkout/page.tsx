@@ -62,6 +62,7 @@ export default function CheckoutPage() {
         destination_postal_code: address.postal_code,
         weight: totalWeight.toString(),
         value: total().toString(),
+        store_id: items[0].store_id, // Fetch shipping couriers specifically enabled for this store
       })
       const res = await fetch(`/api/buyer/shipping?${params}`)
       const data = await res.json()

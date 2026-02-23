@@ -49,7 +49,8 @@ export function ProductDetail({ product }: ProductDetailProps) {
             price: product.price,
             quantity: qty,
             image_url: sortedImages[0]?.url || '',
-            weight_gram: product.weight_gram || 1000 // Default 1kg if undefined
+            weight_gram: product.weight_gram || 1000,
+            store_id: product.stores.id
         })
         setAdded(true)
         toast.success('Ditambahkan ke keranjang!')

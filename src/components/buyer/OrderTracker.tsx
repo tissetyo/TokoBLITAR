@@ -20,7 +20,7 @@ interface OrderTrackerProps {
     total_amount: number
     discount_amount: number
     created_at: string
-    shipping_address: { name: string; phone: string; street: string; city?: string }
+    shipping_address: { name: string; phone: string; street: string; city?: string; courier?: string }
     stores: { name: string }
     order_items: {
       id: string
@@ -29,12 +29,7 @@ interface OrderTrackerProps {
       subtotal: number
       products: { name: string; product_images: { url: string; is_primary: boolean }[] }
     }[]
-    shipments: {
-      courier: string
-      tracking_code: string | null
-      status: string
-      estimated_delivery: string | null
-    }[]
+    shipping_tracking_code?: string | null
   }
 }
 
@@ -87,8 +82,8 @@ export function OrderTracker({ order }: OrderTrackerProps) {
                     <div key={step.key} className="flex flex-1 flex-col items-center gap-2">
                       <div
                         className={`flex h-10 w-10 items-center justify-center rounded-full transition-colors ${isComplete
-                            ? 'text-white'
-                            : 'bg-gray-200 text-gray-400'
+                          ? 'text-white'
+                          : 'bg-gray-200 text-gray-400'
                           }`}
                         style={isComplete ? { backgroundColor: 'var(--color-tb-primary)' } : undefined}
                       >
@@ -116,18 +111,28 @@ export function OrderTracker({ order }: OrderTrackerProps) {
           </Card>
         )}
 
-        {/* Shipping */}
-        {order.shipments && order.shipments.length > 0 && (
+        {/* Shipping details from Order */}
+        {order.shipping_address && order.shipping_address.courier && (
           <Card className="mb-6">
-            <CardHeader><CardTitle className="text-base">Pengiriman</CardTitle></CardHeader>
+            <CardHeader><CardTitle className="text-base flex items-center gap-2"><Truck className="h-5 w-5" /> Pengiriman</CardTitle></CardHeader>
             <CardContent className="space-y-2 text-sm">
-              <p>Kurir: <strong>{order.shipments[0].courier}</strong></p>
-              {order.shipments[0].tracking_code && (
-                <p>No. Resi: <strong>{order.shipments[0].tracking_code}</strong></p>
-              )}
-              {order.shipments[0].estimated_delivery && (
-                <p>Estimasi: <strong>{formatDate(order.shipments[0].estimated_delivery)}</strong></p>
-              )}
+              <div className="flex justify-between items-center bg-gray-50 border p-3 rounded-lg">
+                <div>
+                  <p className="font-semibold text-gray-700">Kurir Pilihan</p>
+                  <p className="text-lg font-bold">{order.shipping_address.courier}</p>
+                </div>
+                {(order.status === 'shipped' || order.status === 'delivered') ? (
+                  <div className="text-right">
+                    <p className="font-semibold text-gray-700">No. Resi</p>
+                    <p className="text-lg font-bold text-blue-600">{order.shipping_tracking_code || '-'}</p>
+                  </div>
+                ) : (
+                  <div className="text-right">
+                    <p className="font-semibold text-gray-700">Status Pengiriman</p>
+                    <p className="text-sm font-medium text-gray-500">Menunggu Penjual Input Resi</p>
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         )}

@@ -10,6 +10,7 @@ interface CartItem {
     quantity: number
     image_url: string
     weight_gram: number
+    store_id: string
 }
 
 interface CartStore {

@@ -5,15 +5,17 @@ import { createSupabaseServerClient } from '@/lib/supabase/server'
 // GET: fetch shipping rates
 export async function GET(request: NextRequest) {
     const url = request.nextUrl
-    const originPostal = url.searchParams.get('origin_postal_code') || '66171' // Default: Blitar
+    const originAreaId = url.searchParams.get('origin_area_id')
+    const originPostal = url.searchParams.get('origin_postal_code')
+    const destAreaId = url.searchParams.get('destination_area_id')
     const destPostal = url.searchParams.get('destination_postal_code')
     const weight = parseInt(url.searchParams.get('weight') || '1000')
     const itemValue = parseInt(url.searchParams.get('value') || '50000')
     const storeId = url.searchParams.get('store_id')
 
-    if (!destPostal) {
+    if (!destPostal && !destAreaId) {
         return NextResponse.json(
-            { error: 'destination_postal_code wajib diisi' },
+            { error: 'Kodepos atau ID Area tujuan wajib diisi' },
             { status: 400 },
         )
     }
@@ -28,19 +30,22 @@ export async function GET(request: NextRequest) {
     try {
         const supabase = await createSupabaseServerClient()
 
-        // Get store's allowed couriers
+        // Get store's allowed couriers and area_id
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         const { data: store } = await (supabase as any)
             .from('stores')
-            .select('shipping_couriers')
+            .select('shipping_couriers, area_id')
             .eq('id', storeId)
             .single()
 
         const allowedCouriers = store?.shipping_couriers || ['jne', 'jnt', 'sicepat', 'anteraja', 'pos', 'tiki']
+        const storeAreaId = store?.area_id
 
         let rates = await getBiteshipRates({
-            origin_postal_code: originPostal,
-            destination_postal_code: destPostal,
+            origin_postal_code: (!originAreaId && !storeAreaId) ? (originPostal || '66171') : undefined,
+            destination_postal_code: destPostal || undefined,
+            origin_area_id: originAreaId || storeAreaId || undefined,
+            destination_area_id: destAreaId || undefined,
             couriers: allowedCouriers.join(','),
             items: [{
                 name: 'Produk',

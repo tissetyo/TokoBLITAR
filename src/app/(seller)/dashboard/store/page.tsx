@@ -9,6 +9,12 @@ import { Textarea } from '@/components/ui/textarea'
 import { Checkbox } from '@/components/ui/checkbox'
 import { toast } from 'sonner'
 import { Store, MapPin, Truck, Save, Loader2 } from 'lucide-react'
+import { AreaSearch } from '@/components/ui/area-search'
+
+interface Area {
+  id: string
+  name: string
+}
 
 const AVAILABLE_COURIERS = [
   { id: 'jne', name: 'JNE' },
@@ -27,6 +33,9 @@ export default function StoreSettingsPage() {
   const [storeSlug, setStoreSlug] = useState('')
   const [description, setDescription] = useState('')
   const [address, setAddress] = useState('')
+  const [city, setCity] = useState('')
+  const [province, setProvince] = useState('')
+  const [selectedArea, setSelectedArea] = useState<Area | null>(null)
   const [enabledCouriers, setEnabledCouriers] = useState<string[]>([])
 
   useEffect(() => {
@@ -39,6 +48,15 @@ export default function StoreSettingsPage() {
           setStoreSlug(data.store.slug || '')
           setDescription(data.store.description || '')
           setAddress(data.store.address || '')
+          setCity(data.store.city || '')
+          setProvince(data.store.province || '')
+
+          if (data.store.area_id && data.store.city) {
+            setSelectedArea({
+              id: data.store.area_id,
+              name: `${data.store.city}${data.store.province ? `, ${data.store.province}` : ''}`
+            })
+          }
 
           // Default to basic couriers if never set
           if (data.store.shipping_couriers && data.store.shipping_couriers.length > 0) {
@@ -82,6 +100,9 @@ export default function StoreSettingsPage() {
           slug: storeSlug,
           description,
           address,
+          city,
+          province,
+          area_id: selectedArea?.id || null,
           shipping_couriers: enabledCouriers
         }),
       })
@@ -168,15 +189,48 @@ export default function StoreSettingsPage() {
             <CardDescription>Alamat ini digunakan untuk menghitung ongkos kirim asal.</CardDescription>
           </CardHeader>
           <CardContent>
-            <div className="space-y-2">
-              <Label htmlFor="address">Alamat Lengkap</Label>
-              <Textarea
-                id="address"
-                rows={2}
-                value={address}
-                onChange={(e) => setAddress(e.target.value)}
-                placeholder="Nama jalan, gedung, RT/RW, kecamatan, kota..."
+            <div className="space-y-4">
+              <div className="space-y-2">
+                <Label htmlFor="address">Alamat Jalan</Label>
+                <Textarea
+                  id="address"
+                  rows={2}
+                  value={address}
+                  onChange={(e) => setAddress(e.target.value)}
+                  placeholder="Nama jalan, gedung, RT/RW..."
+                />
+              </div>
+
+              <AreaSearch
+                label="Wilayah Toko (Kecamatan / Kota)"
+                placeholder="Ketik kecamatan toko..."
+                defaultValue={selectedArea}
+                onSelect={(area) => {
+                  if (area) {
+                    setSelectedArea(area)
+                    const parts = area.name.split(',').map(s => s.trim())
+                    setCity(parts.length > 1 ? parts[1] : area.name)
+                    setProvince(parts.length > 2 ? parts[2] : '')
+                  } else {
+                    setSelectedArea(null)
+                    setCity('')
+                    setProvince('')
+                  }
+                }}
               />
+
+              {(city || province) && (
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <div className="space-y-2">
+                    <Label>Kota/Kabupaten</Label>
+                    <Input value={city} readOnly className="bg-gray-50" />
+                  </div>
+                  <div className="space-y-2">
+                    <Label>Provinsi</Label>
+                    <Input value={province} readOnly className="bg-gray-50" />
+                  </div>
+                </div>
+              )}
             </div>
           </CardContent>
         </Card>

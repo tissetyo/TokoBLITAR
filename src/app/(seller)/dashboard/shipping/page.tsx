@@ -33,7 +33,7 @@ export default function ShippingPage() {
   const [loading, setLoading] = useState(true)
 
   // Manual Check States
-  const [originArea, setOriginArea] = useState<Area | null>({ id: 'IDNP4C111K1115D111511', name: 'Sananwetan, Blitar, Jawa Timur' })
+  const [originArea, setOriginArea] = useState<Area | null>(null)
   const [destinationArea, setDestinationArea] = useState<Area | null>(null)
   const [weight, setWeight] = useState('1000') // in grams
   const [checkingRates, setCheckingRates] = useState(false)

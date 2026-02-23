@@ -14,6 +14,9 @@ const storeSchema = z.object({
     google_maps_url: z.string().optional(),
     instagram_handle: z.string().optional(),
     shipping_couriers: z.array(z.string()).optional(),
+    area_id: z.string().optional(),
+    city: z.string().optional(),
+    province: z.string().optional(),
 })
 
 // GET: fetch seller's store or check slug availability

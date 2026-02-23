@@ -93,7 +93,7 @@ export function AreaSearch({ label, placeholder = 'Cari kecamatan / kota...', on
                         if (results.length > 0 && query.length >= 3) setIsOpen(true)
                     }}
                     placeholder={placeholder}
-                    className="pr-10"
+                    className={selectedArea ? "pr-20" : "pr-10"}
                 />
                 <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-gray-400">
                     {loading ? <Loader2 className="h-4 w-4 animate-spin" /> : <Search className="h-4 w-4" />}

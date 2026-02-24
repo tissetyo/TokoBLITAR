@@ -49,6 +49,11 @@ export interface Database {
                     lng: number | null
                     google_maps_url: string | null
                     instagram_handle: string | null
+                    web_enabled: boolean
+                    bio_enabled: boolean
+                    theme: string
+                    font_family: string
+                    bio_description: string | null
                     status: 'active' | 'inactive' | 'suspended'
                     created_at: string
                     deleted_at: string | null
@@ -66,6 +71,11 @@ export interface Database {
                     lng?: number | null
                     google_maps_url?: string | null
                     instagram_handle?: string | null
+                    web_enabled?: boolean
+                    bio_enabled?: boolean
+                    theme?: string
+                    font_family?: string
+                    bio_description?: string | null
                     status?: 'active' | 'inactive' | 'suspended'
                     created_at?: string
                     deleted_at?: string | null
@@ -83,6 +93,11 @@ export interface Database {
                     lng?: number | null
                     google_maps_url?: string | null
                     instagram_handle?: string | null
+                    web_enabled?: boolean
+                    bio_enabled?: boolean
+                    theme?: string
+                    font_family?: string
+                    bio_description?: string | null
                     status?: 'active' | 'inactive' | 'suspended'
                     created_at?: string
                     deleted_at?: string | null
@@ -112,6 +127,41 @@ export interface Database {
                     icon_url?: string | null
                     parent_id?: string | null
                     created_at?: string
+                }
+            }
+            store_links: {
+                Row: {
+                    id: string
+                    store_id: string
+                    title: string
+                    url: string
+                    icon_name: string | null
+                    is_active: boolean
+                    position: number
+                    created_at: string
+                    updated_at: string
+                }
+                Insert: {
+                    id?: string
+                    store_id: string
+                    title: string
+                    url: string
+                    icon_name?: string | null
+                    is_active?: boolean
+                    position?: number
+                    created_at?: string
+                    updated_at?: string
+                }
+                Update: {
+                    id?: string
+                    store_id?: string
+                    title?: string
+                    url?: string
+                    icon_name?: string | null
+                    is_active?: boolean
+                    position?: number
+                    created_at?: string
+                    updated_at?: string
                 }
             }
             products: {

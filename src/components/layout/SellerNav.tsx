@@ -11,6 +11,7 @@ import {
   Share2,
   Instagram,
   Ticket,
+  Palette,
   LogOut,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
@@ -22,6 +23,7 @@ const navItems = [
   { href: '/dashboard/orders', label: 'Pesanan', icon: PackageSearch },
   { href: '/dashboard/shipping', label: 'Pengiriman', icon: Truck },
   { href: '/dashboard/store', label: 'Pengaturan Toko', icon: Store },
+  { href: '/dashboard/appearance', label: 'Tampilan Toko', icon: Palette },
   { href: '/dashboard/marketplace', label: 'Marketplace', icon: Share2 },
   { href: '/dashboard/instagram', label: 'Instagram', icon: Instagram },
   { href: '/dashboard/promo', label: 'Promo', icon: Ticket },

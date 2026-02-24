@@ -23,71 +23,15 @@ export function PhotoEnhancer({ productId, imageUrl, onAccept }: PhotoEnhancerPr
   async function handleGenerate() {
     setLoading('generate')
     try {
-      // Step 1: Remove Background to isolate the object
-      toast.info('Mensolasi produk (1/3)...')
-      const bgRes = await fetch(`/api/seller/products/${productId}/enhance-photo`, {
+      const res = await fetch(`/api/seller/products/${productId}/enhance-photo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_url: imageUrl, action: 'remove_bg' }),
+        body: JSON.stringify({ image_url: imageUrl, action: 'generate_from_prompt', customInstruction: userInstruction }),
       })
-      const bgData = await bgRes.json()
-      if (!bgRes.ok) throw new Error(bgData.error || 'Gagal menghapus background')
-
-      // Step 2: Generate Mask from transparent image
-      toast.info('Membuat cetakan masking (2/3)...')
-      const transparentBase64 = bgData.result
-      const img = new Image()
-      img.src = transparentBase64
-      await new Promise(res => { img.onload = res })
-
-      const canvas = document.createElement('canvas')
-      canvas.width = img.width
-      canvas.height = img.height
-      const ctx = canvas.getContext('2d')!
-
-      // Draw the transparent image
-      ctx.drawImage(img, 0, 0)
-
-      // Create Black & White mask (Black = Preserve Object, White = Inpaint Background)
-      const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height)
-      const data = imgData.data
-      for (let i = 0; i < data.length; i += 4) {
-        if (data[i + 3] > 10) { // Opaque: This is the product -> BLACK
-          data[i] = 0; data[i + 1] = 0; data[i + 2] = 0; data[i + 3] = 255
-        } else { // Transparent: This is the background -> WHITE
-          data[i] = 255; data[i + 1] = 255; data[i + 2] = 255; data[i + 3] = 255
-        }
-      }
-      ctx.putImageData(imgData, 0, 0)
-      const maskBase64 = canvas.toDataURL('image/png')
-
-      // Step 3: Call Inpainting API
-      toast.info('Me-render latar AI (3/3)...')
-      const inpaintRes = await fetch(`/api/seller/products/${productId}/enhance-photo`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_url: imageUrl, maskBase64, action: 'inpaint', customInstruction: userInstruction }),
-      })
-      const inpaintData = await inpaintRes.json()
-      if (!inpaintRes.ok) throw new Error(inpaintData.error || 'Gagal membuat AI background')
-
-      // Final Step: Overlay the transparent product on top of the new AI background
-      const finalBgImg = new Image()
-      finalBgImg.src = inpaintData.image_url
-      await new Promise(res => { finalBgImg.onload = res })
-
-      ctx.clearRect(0, 0, canvas.width, canvas.height)
-      ctx.drawImage(finalBgImg, 0, 0, canvas.width, canvas.height) // AI Background
-      ctx.drawImage(img, 0, 0, canvas.width, canvas.height) // 100% Original Transparent Product
-
-      const perfectResult = canvas.toDataURL('image/png')
-      setEnhancedUrl(perfectResult)
-      toast.success('Foto 100% Asli dengan Latar AI berhasil dibuat!')
-    } catch (e: any) {
-      toast.error(e.message || 'Terjadi kesalahan')
-    } finally {
-      setLoading(null)
-    }
+      const data = await res.json()
+      if (!res.ok) { toast.error(data.error || 'Gagal generate foto'); return }
+      if (data.image_url) { setEnhancedUrl(data.image_url); toast.success('Foto berhasil di-generate!') }
+    } catch { toast.error('Terjadi kesalahan') } finally { setLoading(null) }
   }
 
 
@@ -110,7 +54,7 @@ export function PhotoEnhancer({ productId, imageUrl, onAccept }: PhotoEnhancerPr
         ) : !enhancedUrl ? (
           <div className="space-y-4 rounded-lg border border-purple-100 bg-purple-50/30 p-4">
             <div className="space-y-1.5">
-              <label className="text-sm font-semibold text-purple-800">Ubah Background Mode Inpainting (Generative Fill):</label>
+              <label className="text-sm font-semibold text-purple-800">Ubah Background Mode Image-to-Image AI:</label>
               <textarea
                 className="w-full rounded-md border border-purple-200 text-sm py-2 px-3 focus:border-purple-400 focus:ring-purple-400 transition-colors bg-white min-h-[80px]"
                 value={userInstruction}

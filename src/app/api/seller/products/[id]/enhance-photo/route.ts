@@ -69,18 +69,6 @@ export async function POST(request: Request, { params }: Params) {
 
         const imageBuffer = Buffer.from(base64Data, 'base64')
 
-        if (action === 'detect_object') {
-            const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/facebook/detr-resnet-50`;
-            const cfRes = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${aiToken}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: Array.from(new Uint8Array(imageBuffer)) })
-            });
-            if (!cfRes.ok) throw new Error('Cloudflare Object Detection failed');
-            const data = await cfRes.json();
-            return NextResponse.json({ result: data.result }); // returns array of {score, label, box: {xmin,ymin,xmax,ymax}}
-        }
-
         if (action === 'enhance' || action === 'generate_from_prompt' || action === 'inpaint') {
             const basePrompt = customInstruction || promptText || 'high quality, enhanced details, vibrant colors';
             const finalImagePrompt = `${basePrompt}. Highly detailed, photorealistic, 4k.`;
@@ -95,22 +83,6 @@ export async function POST(request: Request, { params }: Params) {
                 num_steps: 20,
                 guidance: 7.5
             };
-
-            if (action === 'inpaint') {
-                if (!maskBase64) {
-                    return NextResponse.json({ error: 'Mask is required for inpainting' }, { status: 400 })
-                }
-                endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/runwayml/stable-diffusion-v1-5-inpainting`;
-                const maskData = maskBase64.includes(',') ? maskBase64.split(',')[1] : maskBase64;
-                const maskBuffer = Buffer.from(maskData, 'base64');
-                reqBody = {
-                    prompt: finalImagePrompt,
-                    image: Array.from(new Uint8Array(imageBuffer)),
-                    mask: Array.from(new Uint8Array(maskBuffer)),
-                    num_steps: 20,
-                    guidance: 7.5
-                };
-            }
 
             const cfRes = await fetch(endpoint, {
                 method: 'POST',

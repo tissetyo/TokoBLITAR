@@ -30,79 +30,8 @@ export async function POST(request: Request) {
         const base64Data = image_base64?.includes(',') ? image_base64.split(',')[1] : image_base64
         const imageBuffer = base64Data ? Buffer.from(base64Data, 'base64') : undefined
 
-        if (action === 'detect_object') {
-            const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
-            const aiToken = process.env.CLOUDFLARE_AI_TOKEN
-            if (!accountId || !aiToken) return NextResponse.json({ error: 'AI Services not fully configured' }, { status: 503 })
-
-            const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/facebook/detr-resnet-50`;
-            const cfRes = await fetch(endpoint, {
-                method: 'POST',
-                headers: { 'Authorization': `Bearer ${aiToken}`, 'Content-Type': 'application/json' },
-                body: JSON.stringify({ image: Array.from(new Uint8Array(imageBuffer!)) })
-            });
-            if (!cfRes.ok) throw new Error('Cloudflare Object Detection failed');
-            const data = await cfRes.json();
-            return NextResponse.json({ result: data.result }); // returns array of {score, label, box: {xmin,ymin,xmax,ymax}}
-        }
-
-        if (action === 'studio_background' || action === 'enhance' || action === 'generate_from_prompt' || action === 'inpaint') {
-            const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
-            const aiToken = process.env.CLOUDFLARE_AI_TOKEN
-
-            if (!accountId || !aiToken) {
-                return NextResponse.json({ error: 'Layanan AI belum dikonfigurasi sepenuhnya (Butuh Cloudflare API Key)' }, { status: 503 })
-            }
-
-            const basePrompt = customInstruction || promptText || (action === 'studio_background' ? 'professional product photography, studio lighting, smooth solid color background' : 'high quality, enhanced details, vibrant colors')
-            const finalImagePrompt = `${basePrompt}. Highly detailed, photorealistic, 4k.`;
-
-            console.log(`[enhance] Generating image with prompt: ${finalImagePrompt} [Action: ${action}]`)
-
-            let endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/runwayml/stable-diffusion-v1-5-img2img`;
-            let reqBody: any = {
-                prompt: finalImagePrompt,
-                image: Array.from(new Uint8Array(imageBuffer!)),
-                strength: 0.45, // Protect original pixels and geometry
-                num_steps: 20,
-                guidance: 7.5
-            };
-
-            if (action === 'inpaint') {
-                if (!mask_base64) {
-                    return NextResponse.json({ error: 'Mask is required for inpainting' }, { status: 400 })
-                }
-                endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/runwayml/stable-diffusion-v1-5-inpainting`;
-                const maskData = mask_base64.includes(',') ? mask_base64.split(',')[1] : mask_base64;
-                const maskBuffer = Buffer.from(maskData, 'base64');
-                reqBody = {
-                    prompt: finalImagePrompt,
-                    image: Array.from(new Uint8Array(imageBuffer!)),
-                    mask: Array.from(new Uint8Array(maskBuffer)),
-                    num_steps: 20,
-                    guidance: 7.5
-                };
-            }
-
-            const sdRes = await fetch(endpoint, {
-                method: 'POST',
-                headers: {
-                    'Authorization': `Bearer ${aiToken}`,
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify(reqBody),
-            })
-
-            if (!sdRes.ok) {
-                const err = await sdRes.json().catch(() => ({}))
-                console.error('Cloudflare AI error:', err)
-                throw new Error('Gagal melakukan render gambar di Cloudflare')
-            }
-
-            const cfImageBuffer = await sdRes.arrayBuffer()
-            const outBase64 = Buffer.from(cfImageBuffer).toString('base64')
-
-            return NextResponse.json({ result: `data:image/png;base64,${outBase64}` })
+        if (!['studio_background', 'enhance', 'generate_from_prompt'].includes(action)) {
+            return NextResponse.json({ error: 'Aksi tidak valid atau sudah tidak didukung' }, { status: 400 })
         }
 
 

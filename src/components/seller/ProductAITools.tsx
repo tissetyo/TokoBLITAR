@@ -3,7 +3,10 @@
 import { useState, useRef } from 'react'
 import { Button } from '@/components/ui/button'
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card'
-import { Sparkles, ImageIcon, FileText, Tags, Loader2, Check, X, Upload, Eraser, ZoomIn, Wand2, ExternalLink } from 'lucide-react'
+import { Sparkles, Upload, Wand2, X, FileSearch, Copy, Check, Loader2, ImageIcon, FileText, Tags, Eraser } from 'lucide-react'
+import { Input } from '@/components/ui/input'
+import { Textarea } from '@/components/ui/textarea'
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select'
 import { toast } from 'sonner'
 
 interface ProductAIToolsProps {
@@ -32,8 +35,13 @@ export function ProductAITools({
     const [uploadedPhoto, setUploadedPhoto] = useState<string | null>(null)
     const [enhancedPhoto, setEnhancedPhoto] = useState<string | null>(null)
     const [showOriginal, setShowOriginal] = useState(false)
-    const [userInstruction, setUserInstruction] = useState('')
     const fileInputRef = useRef<HTMLInputElement>(null)
+
+    // Gemini Prompt Generator States
+    const [theme, setTheme] = useState('Minimalis')
+    const [backgroundType, setBackgroundType] = useState('Warna Solid Terang')
+    const [lighting, setLighting] = useState('Cahaya Natural Lembut')
+    const [additionalInstruction, setAdditionalInstruction] = useState('')
 
     async function generate(type: 'image' | 'description' | 'category') {
         if (!productName.trim()) {
@@ -52,12 +60,20 @@ export function ProductAITools({
             const data = await res.json()
             if (!res.ok) { toast.error(data.error || 'Gagal generate'); return }
 
-            if (type === 'description') { setGeneratedDesc(data.result); toast.success('Deskripsi berhasil di-generate!') }
-            else if (type === 'image') { setGeneratedImage(data.result); toast.success('Foto berhasil di-generate!') }
+            if (type === 'description') { onDescriptionGenerated(data.result); toast.success('Deskripsi berhasil di-generate!'); }
+            else if (type === 'image') { onImageGenerated(data.result); toast.success('Foto berhasil di-generate!'); }
             else if (type === 'category') {
                 try {
                     const match = data.result.match(/\[[\s\S]*\]/)
-                    if (match) { setSuggestedCategories(JSON.parse(match[0])); toast.success('Kategori disarankan!') }
+                    if (match) {
+                        const suggestedCategories = JSON.parse(match[0]);
+                        if (suggestedCategories.length > 0) {
+                            onCategorySelected(suggestedCategories[0]); // Automatically select the first one
+                            toast.success(`Kategori "${suggestedCategories[0]}" disarankan & dipilih!`);
+                        } else {
+                            toast.info('Tidak ada kategori yang disarankan.');
+                        }
+                    }
                 } catch { toast.error('Gagal parsing saran kategori') }
             }
         } catch { toast.error('Terjadi kesalahan') }
@@ -101,96 +117,27 @@ export function ProductAITools({
         e.target.value = ''
     }
 
-    async function enhancePhoto(action: 'remove_bg' | 'upscale' | 'enhance' | 'studio_background' | 'generate_from_prompt') {
-        if (!uploadedPhoto) return
-        setLoading(`enhance_${action}`)
-        try {
-            const base64 = uploadedPhoto.split(',')[1]
+    function generateAndCopyPrompt() {
+        if (!uploadedPhoto) return;
 
-            if (action === 'generate_from_prompt') {
-                // Step 1: Detect Object Bounding Box using Cloudflare detr-resnet-50
-                toast.info('Mendeteksi posisi produk (1/3)...')
-                const detectRes = await fetch('/api/seller/products/enhance', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image_base64: base64, action: 'detect_object' }),
-                })
-                const detectData = await detectRes.json()
-                if (!detectRes.ok) throw new Error(detectData.error || 'Gagal mendeteksi objek produk')
+        const generatedPrompt = `Tolong edit foto produk saya ini agar terlihat seperti foto studio profesional. 
+Ganti latar belakangnya menjadi tipe [${backgroundType}] dengan nuansa/vibes [${theme}].
+Gunakan teknik pencahayaan [${lighting}] agar produk terlihat sangat jernih dan menarik perhatian.
+Harap JANGAN mengubah atau mendistorsi bentuk, teks, atau logo asli dari produk saya.
+${additionalInstruction ? `\nInstruksi Tambahan: ${additionalInstruction}` : ''}
+`;
 
-                if (!detectData.result || detectData.result.length === 0) {
-                    throw new Error('Tidak ada objek produk yang terdeteksi di gambar ini.')
-                }
+        // Copy to clipboard
+        navigator.clipboard.writeText(generatedPrompt).then(() => {
+            toast.success('Prompt berhasil disalin ke clipboard!');
 
-                // Cari bounding box dengan score tertinggi
-                const bestMatch = detectData.result.reduce((prev: any, current: any) => (prev.score > current.score) ? prev : current)
-                const { xmin, ymin, xmax, ymax } = bestMatch.box
-
-                // Step 2: Create Inpainting Mask
-                toast.info('Membuat cetakan area AI (2/3)...')
-                const img = new Image()
-                img.src = uploadedPhoto // This is already a base64 data URL
-                await new Promise(res => { img.onload = res })
-
-                const canvas = document.createElement('canvas')
-                canvas.width = img.width
-                canvas.height = img.height
-                const ctx = canvas.getContext('2d')!
-
-                // Fill with WHITE (Area for AI to Generate / Replace)
-                ctx.fillStyle = 'white'
-                ctx.fillRect(0, 0, canvas.width, canvas.height)
-
-                // Fill Object Bounding Box with BLACK (Area to Preserve)
-                ctx.fillStyle = 'black'
-                ctx.fillRect(xmin, ymin, xmax - xmin, ymax - ymin)
-
-                const maskBase64 = canvas.toDataURL('image/png')
-
-                // Step 3: Send to Cloudflare Inpainting Model
-                toast.info('Me-render latar AI (3/3)...')
-                const inpaintRes = await fetch('/api/seller/products/enhance', {
-                    method: 'POST',
-                    headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ image_base64: base64, mask_base64: maskBase64, action: 'inpaint', promptText: userInstruction }),
-                })
-                const inpaintData = await inpaintRes.json()
-                if (!inpaintRes.ok) throw new Error(inpaintData.error || 'Gagal membuat AI background')
-
-                // Final Step: Overlay the original object strictly inside the bounding box onto the AI generated image.
-                const finalBgImg = new Image()
-                finalBgImg.src = inpaintData.result
-                await new Promise(res => { finalBgImg.onload = res })
-
-                ctx.clearRect(0, 0, canvas.width, canvas.height)
-                ctx.drawImage(finalBgImg, 0, 0, canvas.width, canvas.height) // Draw AI Background
-
-                // Draw ONLY the original bounding box region from the original image
-                ctx.drawImage(img, xmin, ymin, xmax - xmin, ymax - ymin, xmin, ymin, xmax - xmin, ymax - ymin)
-
-                const perfectResult = canvas.toDataURL('image/png')
-                setEnhancedPhoto(perfectResult)
-                toast.success('Latar AI baru selesai digenerate!')
-                setLoading(null)
-                return;
-            }
-
-            const payload: any = { image_base64: base64, action }
-
-            const res = await fetch('/api/seller/products/enhance', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            })
-            const data = await res.json()
-            if (!res.ok) {
-                toast.error(data.error || 'Gagal enhance foto')
-                return
-            }
-            setEnhancedPhoto(data.result)
-            toast.success(action === 'remove_bg' ? 'Background berhasil dihapus!' : 'Foto berhasil di-enhance!')
-        } catch { toast.error('Terjadi kesalahan') }
-        finally { setLoading(null) }
+            // Open Gemini
+            setTimeout(() => {
+                window.open('https://gemini.google.com/', '_blank');
+            }, 1000);
+        }).catch(() => {
+            toast.error('Gagal menyalin prompt. Silakan salin manual.');
+        });
     }
 
     return (
@@ -218,81 +165,103 @@ export function ProductAITools({
                             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
                         </div>
                     ) : (
-                        <div className="space-y-3">
+                        <div className="space-y-4">
                             <div className="relative overflow-hidden rounded-lg border bg-white">
                                 <img
-                                    src={enhancedPhoto && !showOriginal ? enhancedPhoto : uploadedPhoto}
-                                    alt={enhancedPhoto && !showOriginal ? 'Enhanced' : 'Original'}
+                                    src={uploadedPhoto}
+                                    alt="Original"
                                     className="w-full object-contain"
                                     style={{ maxHeight: 250 }}
                                 />
                                 <span className="absolute left-2 top-2 rounded bg-black/60 px-2 py-0.5 text-[10px] font-bold text-white">
-                                    {enhancedPhoto && !showOriginal ? '✨ HASIL AI' : '📷 ASLI'}
+                                    📷 FOTO ASLI
                                 </span>
-                                {enhancedPhoto && (
-                                    <button
-                                        type="button"
-                                        onClick={() => setShowOriginal(!showOriginal)}
-                                        className="absolute right-2 top-2 rounded bg-black/60 px-2 py-0.5 text-[10px] text-white hover:bg-black/80"
-                                    >
-                                        {showOriginal ? 'Lihat Hasil' : 'Lihat Asli'}
-                                    </button>
-                                )}
                             </div>
 
-                            <div className="space-y-3">
-                                <div className="space-y-4 rounded-lg border border-purple-100 bg-purple-50/30 p-4">
+                            <div className="space-y-4 rounded-lg border border-purple-100 bg-purple-50/30 p-4">
+                                <p className="text-[13px] font-semibold text-purple-800 mb-1">Ciptakan Latar AI Berkualitas Tinggi</p>
+                                <p className="text-[11px] text-purple-600 mb-4">Pilih gaya yang Anda inginkan, kami akan merakitkan instruksi cerdas untuk Anda proses di Google Gemini secara gratis.</p>
+
+                                <div className="space-y-3">
                                     <div className="space-y-1.5">
-                                        <label className="text-xs font-semibold text-purple-800">Ubah Background dengan AI:</label>
-                                        <textarea
-                                            className="w-full rounded-md border border-purple-200 text-sm py-2 px-3 focus:border-purple-400 focus:ring-purple-400 transition-colors bg-white min-h-[80px]"
-                                            value={userInstruction}
-                                            onChange={(e) => setUserInstruction(e.target.value)}
-                                            placeholder="Contoh: Ubah warna latarnya jadi merah tua, beri efek pantulan cahaya studio..."
+                                        <label className="text-xs font-semibold text-purple-900">1. Tema / Nuansa</label>
+                                        <Select value={theme} onValueChange={setTheme}>
+                                            <SelectTrigger className="w-full bg-white text-xs h-9 border-purple-200">
+                                                <SelectValue placeholder="Pilih tema..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="Minimalis">Minimalis (Bersih & Rapi)</SelectItem>
+                                                <SelectItem value="Elegan">Elegan (Mewah & Klasik)</SelectItem>
+                                                <SelectItem value="Alam">Alam (Segar & Organik)</SelectItem>
+                                                <SelectItem value="Futuristik/Cyberpunk">Futuristik / Neon</SelectItem>
+                                                <SelectItem value="Warm/Cozy">Hangat / Cozy</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-purple-900">2. Latar Belakang</label>
+                                        <Select value={backgroundType} onValueChange={setBackgroundType}>
+                                            <SelectTrigger className="w-full bg-white text-xs h-9 border-purple-200">
+                                                <SelectValue placeholder="Pilih latar belakang..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="Warna Solid Terang">Warna Solid Terang</SelectItem>
+                                                <SelectItem value="Kayu Klasik/Meja Kayu">Meja Kayu Klasik</SelectItem>
+                                                <SelectItem value="Marmer Mewah">Lantai Marmer Mewah</SelectItem>
+                                                <SelectItem value="Pemandangan Alam">Pemandangan Alam</SelectItem>
+                                                <SelectItem value="Studio Kosong">Studio Foto Hitam/Putih</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div className="space-y-1.5">
+                                        <label className="text-xs font-semibold text-purple-900">3. Setting Cahaya</label>
+                                        <Select value={lighting} onValueChange={setLighting}>
+                                            <SelectTrigger className="w-full bg-white text-xs h-9 border-purple-200">
+                                                <SelectValue placeholder="Pilih pencahayaan..." />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="Cahaya Natural Lembut">Natural Jendela</SelectItem>
+                                                <SelectItem value="Lampu Sorot Dramatis">Sorot Dramatis / Spotlight</SelectItem>
+                                                <SelectItem value="Cahaya Softbox Konstan">Cahaya Studio Softbox</SelectItem>
+                                                <SelectItem value="Sinematik">Sinematik Moody</SelectItem>
+                                            </SelectContent>
+                                        </Select>
+                                    </div>
+
+                                    <div className="space-y-1.5 pt-1">
+                                        <label className="text-xs font-semibold text-purple-900">4. Permintaan Khusus (Opsional)</label>
+                                        <Textarea
+                                            className="w-full text-xs min-h-[60px] bg-white border-purple-200 resize-none py-2"
+                                            placeholder="Contoh: Tambahkan pantulan cahaya di bawah produk, atau dedaunan pisang di pojok..."
+                                            value={additionalInstruction}
+                                            onChange={(e) => setAdditionalInstruction(e.target.value)}
                                         />
                                     </div>
+                                </div>
+
+                                <div className="pt-2">
                                     <Button
                                         type="button"
-                                        className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 transition-all text-white font-medium shadow-md hover:shadow-lg"
-                                        onClick={() => enhancePhoto('generate_from_prompt')} disabled={loading !== null || userInstruction.trim() === ''}>
-                                        {loading === 'enhance_generate_from_prompt' ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Wand2 className="h-4 w-4 text-white" />}
-                                        <span className="font-bold">Generate Multi-Model AI (Deteksi Objek) 🚀</span>
+                                        className="w-full flex items-center justify-center gap-2 bg-gradient-to-r from-blue-600 to-indigo-600 hover:from-blue-700 hover:to-indigo-700 transition-all text-white font-medium shadow-md hover:shadow-lg h-10"
+                                        onClick={generateAndCopyPrompt}
+                                    >
+                                        <Copy className="h-4 w-4 text-white" />
+                                        <span className="font-bold text-sm">Copy Prompt & Buka Gemini 🚀</span>
                                     </Button>
-                                    <Button variant="ghost" size="sm" onClick={() => {
-                                        setEnhancedPhoto(null)
-                                        setUserInstruction('')
-                                        toast.info('Foto asli dipertahankan')
-                                    }}>
-                                        <X className="mr-1 h-3 w-3" /> Pertahankan Foto Asli
-                                    </Button>
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        className="w-full flex items-center justify-center gap-2 hover:bg-orange-50 hover:text-orange-700 transition-colors"
-                                        onClick={() => enhancePhoto('remove_bg')} disabled={loading !== null}>
-                                        {loading === 'enhance_remove_bg' ? <Loader2 className="h-4 w-4 animate-spin text-orange-500" /> : <Eraser className="h-4 w-4 text-orange-500" />}
-                                        Hapus Background
-                                    </Button>
+                                    <p className="text-[10px] text-center text-purple-600 mt-2">
+                                        Setelah terbuka, paste prompt ini + upload gambar asli.
+                                    </p>
                                 </div>
                             </div>
 
-                            <div className="flex gap-2 mt-3">
-                                {enhancedPhoto && (
-                                    <Button type="button" size="sm" className="flex-1" onClick={() => {
-                                        onImageGenerated(enhancedPhoto); setUploadedPhoto(null); setEnhancedPhoto(null); toast.success('Foto ditambahkan!')
-                                    }}>
-                                        <Check className="mr-1 h-3 w-3" /> Gunakan Hasil
-                                    </Button>
-                                )}
-                                <Button type="button" variant="outline" size="sm" onClick={() => { setUploadedPhoto(null); setEnhancedPhoto(null); setUserInstruction('') }}>
-                                    <X className="mr-1 h-3 w-3" /> Reset
-                                </Button>
-                            </div>
+                            <Button type="button" variant="outline" size="sm" className="w-full" onClick={() => { setUploadedPhoto(null); }}>
+                                <X className="mr-1 h-3 w-3" /> Batal & Hapus Foto
+                            </Button>
                         </div>
                     )}
                 </div>
-
-
 
                 <div className="rounded-lg border border-purple-200 bg-purple-50/50 p-4">
                     <p className="mb-2 text-xs font-semibold text-purple-800">🌟 Foto Studio Profesional Secara Gratis!</p>

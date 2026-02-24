@@ -10,6 +10,12 @@ import {
   Store,
   ShoppingBag,
   HelpCircle,
+  Utensils,
+  Coffee,
+  Palette,
+  Shirt,
+  Wheat,
+  Package,
 } from 'lucide-react'
 
 export const revalidate = 60
@@ -49,13 +55,13 @@ export default async function HomePage() {
     .eq('status', 'active')
     .limit(6)
 
-  const CATEGORY_ICONS: Record<string, string> = {
-    makanan: '🍜',
-    minuman: '🥤',
-    kerajinan: '🎨',
-    fashion: '👗',
-    pertanian: '🌾',
-    lainnya: '📦',
+  const CATEGORY_ICONS: Record<string, React.ReactNode> = {
+    makanan: <Utensils className="h-6 w-6" />,
+    minuman: <Coffee className="h-6 w-6" />,
+    kerajinan: <Palette className="h-6 w-6" />,
+    fashion: <Shirt className="h-6 w-6" />,
+    pertanian: <Wheat className="h-6 w-6" />,
+    lainnya: <Package className="h-6 w-6" />,
   }
 
   const GRADIENT_COLORS = [
@@ -265,7 +271,7 @@ export default async function HomePage() {
                   href={`/products?category=${cat.slug}`}
                   className="flex flex-col items-center gap-2 rounded-2xl bg-gray-50 px-4 py-6 text-center transition-all hover:bg-gray-100 hover:-translate-y-0.5"
                 >
-                  <span className="text-2xl">{CATEGORY_ICONS[cat.slug] || '📦'}</span>
+                  <span className="text-gray-600">{CATEGORY_ICONS[cat.slug] || <Package className="h-6 w-6" />}</span>
                   <span className="text-xs font-semibold text-gray-800">{cat.name}</span>
                   <span className="text-[10px] text-gray-400 leading-tight">Produk UMKM Blitar</span>
                 </Link>

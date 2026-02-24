@@ -43,8 +43,7 @@ export async function POST(request: Request, { params }: Params) {
             return NextResponse.json({ error: 'Image URL or Base64 is required' }, { status: 400 })
         }
 
-        // Only support these actions
-        if (!['remove_bg', 'enhance', 'generate_from_prompt', 'inpaint'].includes(action)) {
+        if (!['enhance', 'generate_from_prompt', 'inpaint'].includes(action)) {
             return NextResponse.json({ error: 'Aksi tidak didukung.' }, { status: 400 })
         }
 
@@ -127,42 +126,6 @@ export async function POST(request: Request, { params }: Params) {
             })
         }
 
-        // --- HUGGINGFACE BACKGROUND REMOVAL ACTION ---
-        if (action === 'remove_bg') {
-            const hfKey = process.env.HUGGINGFACE_API_KEY
-            if (!hfKey) {
-                return NextResponse.json({ error: 'HUGGINGFACE_API_KEY belum dikonfigurasi di server' }, { status: 500 })
-            }
-
-            // Fetch using Hugging Face Inference API directly
-            console.log(`[enhance-photo] Calling Hugging Face Inference API (briaai/RMBG-1.4)...`)
-            const hfRes = await fetch(
-                "https://api-inference.huggingface.co/models/briaai/RMBG-1.4",
-                {
-                    headers: {
-                        Authorization: `Bearer ${hfKey}`,
-                        "Content-Type": "application/json",
-                    },
-                    method: "POST",
-                    body: imageBuffer,
-                }
-            );
-
-            if (!hfRes.ok) {
-                const errText = await hfRes.text().catch(() => '')
-                console.error('[enhance-photo] HF API failed:', hfRes.status, errText)
-
-                if (hfRes.status === 503) {
-                    return NextResponse.json({ error: 'Model AI sedang loading, silakan coba lagi dalam 10 detik.' }, { status: 503 })
-                }
-                throw new Error('Gagal memproses gambar. Server AI mungkin sedang sibuk.')
-            }
-
-            const outBuffer = await hfRes.arrayBuffer()
-            const outBase64 = Buffer.from(outBuffer).toString('base64')
-
-            return NextResponse.json({ result: `data:image/png;base64,${outBase64}` })
-        }
 
     } catch (err: any) {
         console.error('[AI Pipeline Error]:', err)

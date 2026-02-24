@@ -22,8 +22,7 @@ export async function POST(request: Request) {
     try {
         console.log(`[enhance] Starting enhancement. Action: ${action}`)
 
-        // Only support these actions
-        if (!['remove_bg', 'enhance', 'studio_background', 'generate_from_prompt', 'inpaint'].includes(action)) {
+        if (!['enhance', 'studio_background', 'generate_from_prompt', 'inpaint'].includes(action)) {
             return NextResponse.json({ error: 'Aksi tidak didukung.' }, { status: 400 })
         }
 
@@ -90,40 +89,7 @@ export async function POST(request: Request) {
             return NextResponse.json({ result: `data:image/png;base64,${outBase64}` })
         }
 
-        // --- HUGGINGFACE BACKGROUND REMOVAL ACTION ---
-        const hfKey = process.env.HUGGINGFACE_API_KEY
-        if (!hfKey) {
-            return NextResponse.json({ error: 'HUGGINGFACE_API_KEY belum dikonfigurasi di server' }, { status: 500 })
-        }
 
-        // Fetch using Hugging Face Inference API directly
-        console.log(`[enhance] Calling Hugging Face Inference API (briaai/RMBG-1.4)...`)
-        const hfRes = await fetch(
-            "https://api-inference.huggingface.co/models/briaai/RMBG-1.4",
-            {
-                headers: {
-                    Authorization: `Bearer ${hfKey}`,
-                    "Content-Type": "application/json",
-                },
-                method: "POST",
-                body: imageBuffer,
-            }
-        );
-
-        if (!hfRes.ok) {
-            const errText = await hfRes.text().catch(() => '')
-            console.error('[enhance] HF API failed:', hfRes.status, errText)
-
-            if (hfRes.status === 503) {
-                return NextResponse.json({ error: 'Model AI sedang loading, silakan coba lagi dalam 10 detik.' }, { status: 503 })
-            }
-            throw new Error('Gagal memproses gambar. Server AI mungkin sedang sibuk.')
-        }
-
-        const outBuffer = await hfRes.arrayBuffer()
-        const outBase64 = Buffer.from(outBuffer).toString('base64')
-
-        return NextResponse.json({ result: `data:image/png;base64,${outBase64}` })
 
     } catch (err) {
         const msg = err instanceof Error ? err.message : String(err)

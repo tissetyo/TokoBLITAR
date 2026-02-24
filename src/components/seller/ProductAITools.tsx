@@ -161,7 +161,7 @@ ${additionalInstruction ? `\nInstruksi Tambahan: ${additionalInstruction}` : ''}
                         >
                             <Upload className="h-8 w-8 text-blue-400" />
                             <span className="text-sm font-medium text-gray-600">Upload foto mentah</span>
-                            <span className="text-xs text-gray-400">AI akan perbagus jadi foto display profesional</span>
+                            <span className="text-xs text-gray-400">Pilih foto untuk mulai merakit Prompt AI Gemini</span>
                             <input ref={fileInputRef} type="file" accept="image/*" onChange={handleFileSelect} className="hidden" />
                         </div>
                     ) : (
@@ -264,9 +264,9 @@ ${additionalInstruction ? `\nInstruksi Tambahan: ${additionalInstruction}` : ''}
                 </div>
 
                 <div className="rounded-lg border border-purple-200 bg-purple-50/50 p-4">
-                    <p className="mb-2 text-xs font-semibold text-purple-800">🌟 Foto Studio Profesional Secara Gratis!</p>
+                    <p className="mb-2 text-xs font-semibold text-purple-800">🌟 Generate Prompt Foto Studio Secara Gratis!</p>
                     <p className="text-[10px] text-purple-600 leading-relaxed">
-                        Fitur <b>Magic Enhance✨</b> di atas menggunakan perpaduan Vision AI dan Image Generation. Sistem akan membaca bentuk barang jualan Anda, lalu secara otomatis membuatkan Latar Belakang Studio yang mewah dan sangat realistis tanpa biaya sama sekali.
+                        Fitur di atas akan membantumu merakit instruksi detail yang bisa dicopy-paste ke <b>Google Gemini</b>. Kamu bisa dengan mudah mengubah Latar Belakang foto sesuai tema yang diinginkan tanpa biaya sama sekali.
                     </p>
                 </div>
 

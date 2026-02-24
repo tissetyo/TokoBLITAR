@@ -23,14 +23,80 @@ export function PhotoEnhancer({ productId, imageUrl, onAccept }: PhotoEnhancerPr
   async function handleGenerate() {
     setLoading('generate')
     try {
-      const res = await fetch(`/api/seller/products/${productId}/enhance-photo`, {
+      // Step 1: Detect Object Bounding Box using Cloudflare detr-resnet-50
+      toast.info('Mendeteksi posisi produk (1/3)...')
+      const detectRes = await fetch(`/api/seller/products/${productId}/enhance-photo`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ image_url: imageUrl, action: 'generate_from_prompt', customInstruction: userInstruction }),
+        body: JSON.stringify({ image_url: imageUrl, action: 'detect_object' }),
       })
-      const data = await res.json()
-      if (!res.ok) { toast.error(data.error || 'Gagal generate foto'); return }
-      if (data.image_url) { setEnhancedUrl(data.image_url); toast.success('Foto berhasil di-generate!') }
+      const detectData = await detectRes.json()
+      if (!detectRes.ok) throw new Error(detectData.error || 'Gagal mendeteksi objek')
+
+      if (!detectData.result || detectData.result.length === 0) {
+        throw new Error('Tidak ada objek produk yang terdeteksi di gambar ini.')
+      }
+
+      // Cari bounding box dengan score tertinggi
+      const bestMatch = detectData.result.reduce((prev: any, current: any) => (prev.score > current.score) ? prev : current)
+      const { xmin, ymin, xmax, ymax } = bestMatch.box
+
+      // Step 2: Create Inpainting Mask
+      toast.info('Membuat cetakan area AI (2/3)...')
+      const img = new Image()
+      img.crossOrigin = "anonymous"
+      if (imageUrl.startsWith('data:')) {
+        img.src = imageUrl
+      } else {
+        // If we have a URL, fetch it as blob to avoid canvas cross-origin taint
+        const blobRes = await fetch(imageUrl)
+        const blob = await blobRes.blob()
+        img.src = URL.createObjectURL(blob)
+      }
+      await new Promise(res => { img.onload = res })
+
+      const canvas = document.createElement('canvas')
+      canvas.width = img.width
+      canvas.height = img.height
+      const ctx = canvas.getContext('2d')!
+
+      // Fill with WHITE (Area for AI to Generate / Replace)
+      ctx.fillStyle = 'white'
+      ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+      // Fill Object Bounding Box with BLACK (Area to Preserve)
+      ctx.fillStyle = 'black'
+      ctx.fillRect(xmin, ymin, xmax - xmin, ymax - ymin)
+
+      const maskBase64 = canvas.toDataURL('image/png')
+
+      // Step 3: Send to Cloudflare Inpainting Model
+      toast.info('Me-render latar AI (3/3)...')
+      // Note: we must pass imageBase64 instead of image_url since we need to ensure the backend gets the raw bits smoothly, or the backend fetch image_url works too.
+      // Backend already supports image_url fetching.
+      const inpaintRes = await fetch(`/api/seller/products/${productId}/enhance-photo`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ image_url: imageUrl, maskBase64, action: 'inpaint', customInstruction: userInstruction }),
+      })
+      const inpaintData = await inpaintRes.json()
+      if (!inpaintRes.ok) throw new Error(inpaintData.error || 'Gagal membuat AI background')
+
+      // Final Step: Overlay the original object strictly inside the bounding box onto the AI generated image.
+      // This guarantees the product pixels are 100% untouched by AI compression.
+      const finalBgImg = new Image()
+      finalBgImg.src = inpaintData.image_url
+      await new Promise(res => { finalBgImg.onload = res })
+
+      ctx.clearRect(0, 0, canvas.width, canvas.height)
+      ctx.drawImage(finalBgImg, 0, 0, canvas.width, canvas.height) // Draw AI Background
+
+      // Draw ONLY the original bounding box region from the original image
+      ctx.drawImage(img, xmin, ymin, xmax - xmin, ymax - ymin, xmin, ymin, xmax - xmin, ymax - ymin)
+
+      const perfectResult = canvas.toDataURL('image/png')
+      setEnhancedUrl(perfectResult)
+      toast.success('Latar belakang berhasil diubah!')
     } catch { toast.error('Terjadi kesalahan') } finally { setLoading(null) }
   }
 
@@ -54,7 +120,7 @@ export function PhotoEnhancer({ productId, imageUrl, onAccept }: PhotoEnhancerPr
         ) : !enhancedUrl ? (
           <div className="space-y-4 rounded-lg border border-purple-100 bg-purple-50/30 p-4">
             <div className="space-y-1.5">
-              <label className="text-sm font-semibold text-purple-800">Ubah Background Mode Image-to-Image AI:</label>
+              <label className="text-sm font-semibold text-purple-800">Ubah Background Mode Multi-Model AI (Deteksi Objek + Inpainting):</label>
               <textarea
                 className="w-full rounded-md border border-purple-200 text-sm py-2 px-3 focus:border-purple-400 focus:ring-purple-400 transition-colors bg-white min-h-[80px]"
                 value={userInstruction}

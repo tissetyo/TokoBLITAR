@@ -22,13 +22,29 @@ export async function POST(request: Request) {
     try {
         console.log(`[enhance] Starting enhancement. Action: ${action}`)
 
-        if (!['enhance', 'studio_background', 'generate_from_prompt', 'inpaint'].includes(action)) {
+        if (!['enhance', 'studio_background', 'generate_from_prompt', 'inpaint', 'detect_object'].includes(action)) {
             return NextResponse.json({ error: 'Aksi tidak didukung.' }, { status: 400 })
         }
 
         // Clean base64 string
         const base64Data = image_base64?.includes(',') ? image_base64.split(',')[1] : image_base64
         const imageBuffer = base64Data ? Buffer.from(base64Data, 'base64') : undefined
+
+        if (action === 'detect_object') {
+            const accountId = process.env.CLOUDFLARE_ACCOUNT_ID
+            const aiToken = process.env.CLOUDFLARE_AI_TOKEN
+            if (!accountId || !aiToken) return NextResponse.json({ error: 'AI Services not fully configured' }, { status: 503 })
+
+            const endpoint = `https://api.cloudflare.com/client/v4/accounts/${accountId}/ai/run/@cf/facebook/detr-resnet-50`;
+            const cfRes = await fetch(endpoint, {
+                method: 'POST',
+                headers: { 'Authorization': `Bearer ${aiToken}`, 'Content-Type': 'application/json' },
+                body: JSON.stringify({ image: Array.from(new Uint8Array(imageBuffer!)) })
+            });
+            if (!cfRes.ok) throw new Error('Cloudflare Object Detection failed');
+            const data = await cfRes.json();
+            return NextResponse.json({ result: data.result }); // returns array of {score, label, box: {xmin,ymin,xmax,ymax}}
+        }
 
         if (action === 'studio_background' || action === 'enhance' || action === 'generate_from_prompt' || action === 'inpaint') {
             const accountId = process.env.CLOUDFLARE_ACCOUNT_ID

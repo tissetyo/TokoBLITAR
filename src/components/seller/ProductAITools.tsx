@@ -107,10 +107,75 @@ export function ProductAITools({
         try {
             const base64 = uploadedPhoto.split(',')[1]
 
-            const payload: any = { image_base64: base64, action }
             if (action === 'generate_from_prompt') {
-                payload.promptText = userInstruction
+                // Step 1: Detect Object Bounding Box using Cloudflare detr-resnet-50
+                toast.info('Mendeteksi posisi produk (1/3)...')
+                const detectRes = await fetch('/api/seller/products/enhance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image_base64: base64, action: 'detect_object' }),
+                })
+                const detectData = await detectRes.json()
+                if (!detectRes.ok) throw new Error(detectData.error || 'Gagal mendeteksi objek produk')
+
+                if (!detectData.result || detectData.result.length === 0) {
+                    throw new Error('Tidak ada objek produk yang terdeteksi di gambar ini.')
+                }
+
+                // Cari bounding box dengan score tertinggi
+                const bestMatch = detectData.result.reduce((prev: any, current: any) => (prev.score > current.score) ? prev : current)
+                const { xmin, ymin, xmax, ymax } = bestMatch.box
+
+                // Step 2: Create Inpainting Mask
+                toast.info('Membuat cetakan area AI (2/3)...')
+                const img = new Image()
+                img.src = uploadedPhoto // This is already a base64 data URL
+                await new Promise(res => { img.onload = res })
+
+                const canvas = document.createElement('canvas')
+                canvas.width = img.width
+                canvas.height = img.height
+                const ctx = canvas.getContext('2d')!
+
+                // Fill with WHITE (Area for AI to Generate / Replace)
+                ctx.fillStyle = 'white'
+                ctx.fillRect(0, 0, canvas.width, canvas.height)
+
+                // Fill Object Bounding Box with BLACK (Area to Preserve)
+                ctx.fillStyle = 'black'
+                ctx.fillRect(xmin, ymin, xmax - xmin, ymax - ymin)
+
+                const maskBase64 = canvas.toDataURL('image/png')
+
+                // Step 3: Send to Cloudflare Inpainting Model
+                toast.info('Me-render latar AI (3/3)...')
+                const inpaintRes = await fetch('/api/seller/products/enhance', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ image_base64: base64, mask_base64: maskBase64, action: 'inpaint', promptText: userInstruction }),
+                })
+                const inpaintData = await inpaintRes.json()
+                if (!inpaintRes.ok) throw new Error(inpaintData.error || 'Gagal membuat AI background')
+
+                // Final Step: Overlay the original object strictly inside the bounding box onto the AI generated image.
+                const finalBgImg = new Image()
+                finalBgImg.src = inpaintData.result
+                await new Promise(res => { finalBgImg.onload = res })
+
+                ctx.clearRect(0, 0, canvas.width, canvas.height)
+                ctx.drawImage(finalBgImg, 0, 0, canvas.width, canvas.height) // Draw AI Background
+
+                // Draw ONLY the original bounding box region from the original image
+                ctx.drawImage(img, xmin, ymin, xmax - xmin, ymax - ymin, xmin, ymin, xmax - xmin, ymax - ymin)
+
+                const perfectResult = canvas.toDataURL('image/png')
+                setEnhancedPhoto(perfectResult)
+                toast.success('Latar AI baru selesai digenerate!')
+                setLoading(null)
+                return;
             }
+
+            const payload: any = { image_base64: base64, action }
 
             const res = await fetch('/api/seller/products/enhance', {
                 method: 'POST',
@@ -122,13 +187,8 @@ export function ProductAITools({
                 toast.error(data.error || 'Gagal enhance foto')
                 return
             }
-            if (action === 'generate_from_prompt') {
-                setEnhancedPhoto(data.result)
-                toast.success('Foto berhasil di-generate!')
-            } else {
-                setEnhancedPhoto(data.result)
-                toast.success(action === 'remove_bg' ? 'Background berhasil dihapus!' : 'Foto berhasil di-enhance!')
-            }
+            setEnhancedPhoto(data.result)
+            toast.success(action === 'remove_bg' ? 'Background berhasil dihapus!' : 'Foto berhasil di-enhance!')
         } catch { toast.error('Terjadi kesalahan') }
         finally { setLoading(null) }
     }
@@ -196,7 +256,7 @@ export function ProductAITools({
                                         className="w-full flex items-center justify-center gap-2 bg-purple-600 hover:bg-purple-700 transition-all text-white font-medium shadow-md hover:shadow-lg"
                                         onClick={() => enhancePhoto('generate_from_prompt')} disabled={loading !== null || userInstruction.trim() === ''}>
                                         {loading === 'enhance_generate_from_prompt' ? <Loader2 className="h-4 w-4 animate-spin text-white" /> : <Wand2 className="h-4 w-4 text-white" />}
-                                        <span className="font-bold">Generate AI Image 🚀</span>
+                                        <span className="font-bold">Generate Multi-Model AI (Deteksi Objek) 🚀</span>
                                     </Button>
                                     <Button variant="ghost" size="sm" onClick={() => {
                                         setEnhancedPhoto(null)

@@ -103,7 +103,7 @@ VALUES
   ('10000000-0000-0000-1000-000000000001', 'https://images.unsplash.com/photo-1559525839-b184a4d698c7?w=800', true),
   ('10000000-0000-0000-1000-000000000002', 'https://images.unsplash.com/photo-1544787219-7f47ccb76574?w=800', true),
   ('20000000-0000-0000-2000-000000000001', 'https://images.unsplash.com/photo-1595225476474-87563907a212?w=800', true),
-  ('20000000-0000-0000-2000-000000000002', 'https://images.unsplash.com/photo-1628202926206-c63a34b19fb4?w=800', true),
-  ('30000000-0000-0000-3000-000000000001', 'https://images.unsplash.com/photo-1635399587321-4d390ad1cb1a?w=800', true),
-  ('30000000-0000-0000-3000-000000000002', 'https://images.unsplash.com/photo-1603252109303-2751441dd157?w=800', true)
+  ('20000000-0000-0000-2000-000000000002', 'https://images.unsplash.com/photo-1595225476474-87563907a212?w=800', true),
+  ('30000000-0000-0000-3000-000000000001', 'https://images.unsplash.com/photo-1544256718-3baf237f39df?w=800', true),
+  ('30000000-0000-0000-3000-000000000002', 'https://images.unsplash.com/photo-1489987707025-afc232f7ea0f?w=800', true)
 ON CONFLICT DO NOTHING;
